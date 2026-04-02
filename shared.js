@@ -46,6 +46,15 @@ export function formatDateOnly(dateString) {
   }).format(date);
 }
 
+export function formatTimeOnly(dateString) {
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat('zh-TW', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
 export function formatCurrency(value) {
   return new Intl.NumberFormat('zh-TW', {
     style: 'currency',

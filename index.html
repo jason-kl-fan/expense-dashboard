@@ -80,6 +80,10 @@
               <input id="expenseDateInput" type="date" />
             </label>
             <label>
+              <span>消費時間</span>
+              <input id="expenseTimeInput" type="time" />
+            </label>
+            <label>
               <span>備註</span>
               <input id="noteInput" type="text" placeholder="例如：早餐、捷運、網購" />
             </label>
@@ -121,11 +125,17 @@
 
           <div class="summary-cards" id="summaryCards"></div>
 
-          <div class="charts-grid single-chart-grid">
+          <div class="charts-grid">
             <div class="chart-card">
               <h3>各類別累積消費</h3>
               <canvas id="categoryChart"></canvas>
               <div id="categoryBreakdown" class="chart-stats-list"></div>
+            </div>
+
+            <div class="chart-card">
+              <h3>消費比例圓餅圖</h3>
+              <canvas id="categoryPieChart"></canvas>
+              <div id="categoryPieBreakdown" class="chart-stats-list"></div>
             </div>
           </div>
 

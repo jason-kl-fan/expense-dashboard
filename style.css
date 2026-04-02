@@ -165,7 +165,11 @@ input, select {
 .summary-card .label { color: #8b7f9f; font-size: 14px; }
 .summary-card .value { font-size: 28px; font-weight: 800; margin: 8px 0; }
 .summary-sub { color: #6f647f; }
-.charts-grid.single-chart-grid { display: block; }
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
 .chart-card, .table-card, .settings-card { padding: 18px; }
 .chart-stats-list, .record-list, .tag-list {
   display: flex;
@@ -203,7 +207,7 @@ input, select {
 .chart-stat-item { justify-content: space-between; }
 .empty-state { color: #8b7f9f; }
 @media (max-width: 860px) {
-  .frontend-layout, .admin-layout, .summary-cards {
+  .frontend-layout, .admin-layout, .summary-cards, .charts-grid {
     grid-template-columns: 1fr;
   }
 }

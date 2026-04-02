@@ -2,6 +2,7 @@ import { ensureRemoteState, subscribeDashboard, saveDashboardState } from './fir
 import {
   uid,
   formatCurrency,
+  formatDateTime,
   formatDateOnly,
   getRangeStart,
   aggregateByCategory,
@@ -17,6 +18,7 @@ const clearBtn = document.getElementById('clearBtn');
 const categorySelect = document.getElementById('categorySelect');
 const paymentMethodSelect = document.getElementById('paymentMethodSelect');
 const expenseDateInput = document.getElementById('expenseDateInput');
+const expenseTimeInput = document.getElementById('expenseTimeInput');
 const noteInput = document.getElementById('noteInput');
 const addExpenseBtn = document.getElementById('addExpenseBtn');
 const rangeSelect = document.getElementById('rangeSelect');
@@ -27,9 +29,11 @@ const customEndDateInput = document.getElementById('customEndDateInput');
 const summaryCards = document.getElementById('summaryCards');
 const categoryBreakdown = document.getElementById('categoryBreakdown');
 const expenseList = document.getElementById('expenseList');
+const categoryPieBreakdown = document.getElementById('categoryPieBreakdown');
 
 let dashboardState = { categories: [], paymentMethods: [], expenses: [], settings: {} };
 let categoryChart;
+let categoryPieChart;
 let amountValue = '0';
 
 function setConnectionStatus(status, text, title = text) {
@@ -54,6 +58,18 @@ function setTodayDefault() {
   expenseDateInput.value = value;
   if (!customStartDateInput.value) customStartDateInput.value = value;
   if (!customEndDateInput.value) customEndDateInput.value = value;
+}
+
+function setCurrentTimeDefault() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  expenseTimeInput.value = `${hours}:${minutes}`;
+}
+
+function combineExpenseDateTime(dateValue, timeValue) {
+  const safeTime = timeValue || '12:00';
+  return `${dateValue}T${safeTime}:00`;
 }
 
 function renderSelectors() {
@@ -124,7 +140,21 @@ function renderChart(expenses) {
   const categories = dashboardState.categories;
   const totals = aggregateByCategory(expenses, categories);
   const ctx = document.getElementById('categoryChart');
+  const pieCtx = document.getElementById('categoryPieChart');
+  const activeEntries = categories
+    .map((category, index) => ({
+      category,
+      total: totals[index],
+      color: CHART_PALETTE[index % CHART_PALETTE.length]
+    }))
+    .filter((entry) => entry.total > 0);
+  const pieEntries = activeEntries.length
+    ? activeEntries
+    : [{ category: '尚無資料', total: 1, color: 'rgba(220, 212, 231, 0.9)' }];
+  const totalAmount = totals.reduce((sum, value) => sum + value, 0);
+
   if (categoryChart) categoryChart.destroy();
+  if (categoryPieChart) categoryPieChart.destroy();
 
   categoryChart = new Chart(ctx, {
     type: 'bar',
@@ -144,12 +174,45 @@ function renderChart(expenses) {
     }
   });
 
+  categoryPieChart = new Chart(pieCtx, {
+    type: 'pie',
+    data: {
+      labels: pieEntries.map((entry) => entry.category),
+      datasets: [{
+        data: pieEntries.map((entry) => entry.total),
+        backgroundColor: pieEntries.map((entry) => entry.color),
+        borderWidth: 1,
+        borderColor: '#ffffff'
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }
+  });
+
   categoryBreakdown.innerHTML = categories.map((category, index) => `
     <div class="chart-stat-item">
       <div><span class="color-dot" style="background:${CHART_PALETTE[index % CHART_PALETTE.length]}"></span> ${category}</div>
       <strong>${formatCurrency(totals[index])}</strong>
     </div>
   `).join('');
+
+  categoryPieBreakdown.innerHTML = activeEntries.length
+    ? activeEntries.map((entry) => {
+        const ratio = totalAmount ? ((entry.total / totalAmount) * 100).toFixed(1) : '0.0';
+        return `
+          <div class="chart-stat-item">
+            <div><span class="color-dot" style="background:${entry.color}"></span> ${entry.category}</div>
+            <strong>${ratio}%</strong>
+          </div>
+        `;
+      }).join('')
+    : '<div class="empty-state">目前沒有可顯示的比例資料。</div>';
 }
 
 function renderExpenseList(expenses) {
@@ -165,7 +228,7 @@ function renderExpenseList(expenses) {
     <div class="record-item">
       <div>
         <strong>${item.category}</strong>
-        <div class="record-meta">${item.paymentMethod} ・ ${formatDateOnly(item.expenseDate)}</div>
+        <div class="record-meta">${item.paymentMethod} ・ ${formatDateTime(item.expenseDate)}</div>
         <div class="record-time">${item.note || '無備註'}</div>
       </div>
       <div class="record-amount">${formatCurrency(item.amount)}</div>
@@ -205,7 +268,7 @@ async function addExpense() {
     amount,
     category: categorySelect.value,
     paymentMethod: paymentMethodSelect.value,
-    expenseDate: `${expenseDateInput.value}T12:00:00`,
+    expenseDate: combineExpenseDateTime(expenseDateInput.value, expenseTimeInput.value),
     note: noteInput.value.trim(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -213,6 +276,7 @@ async function addExpense() {
 
   await persistState({ expenses: nextExpenses });
   clearAmount();
+  setCurrentTimeDefault();
   noteInput.value = '';
 }
 
@@ -234,6 +298,7 @@ customStartDateInput.addEventListener('change', refreshUI);
 customEndDateInput.addEventListener('change', refreshUI);
 
 setTodayDefault();
+setCurrentTimeDefault();
 updateAmountDisplay();
 tickClock();
 setInterval(tickClock, 1000);

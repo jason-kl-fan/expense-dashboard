@@ -8,7 +8,9 @@ import {
   clearAdminSession,
   downloadBlob,
   formatCurrency,
-  formatDateOnly
+  formatDateOnly,
+  formatDateTime,
+  formatTimeOnly
 } from './shared.js';
 
 const connectionIndicator = document.getElementById('connectionIndicator');
@@ -89,7 +91,7 @@ function renderExpenseList() {
     <div class="record-item">
       <div>
         <strong>${item.category}</strong>
-        <div class="record-meta">${item.paymentMethod} ・ ${formatDateOnly(item.expenseDate)}</div>
+        <div class="record-meta">${item.paymentMethod} ・ ${formatDateTime(item.expenseDate)}</div>
         <div class="record-time">${item.note || '無備註'}</div>
       </div>
       <div>
@@ -218,18 +220,26 @@ window.deleteExpense = async (id) => {
 window.editExpense = async (id) => {
   const target = dashboardState.expenses.find((item) => item.id === id);
   if (!target) return;
+  const currentExpenseDate = new Date(target.expenseDate);
+  const dateDefault = `${currentExpenseDate.getFullYear()}-${String(currentExpenseDate.getMonth() + 1).padStart(2, '0')}-${String(currentExpenseDate.getDate()).padStart(2, '0')}`;
+  const timeDefault = `${String(currentExpenseDate.getHours()).padStart(2, '0')}:${String(currentExpenseDate.getMinutes()).padStart(2, '0')}`;
   const amount = prompt('金額', target.amount);
   if (amount === null) return;
   const category = prompt('類別', target.category);
   if (!category) return;
   const paymentMethod = prompt('付款方式', target.paymentMethod);
   if (!paymentMethod) return;
+  const expenseDate = prompt('消費日期（YYYY-MM-DD）', dateDefault);
+  if (!expenseDate) return;
+  const expenseTime = prompt('消費時間（HH:mm）', timeDefault);
+  if (!expenseTime) return;
   const note = prompt('備註', target.note || '') ?? '';
   const expenses = dashboardState.expenses.map((item) => item.id === id ? {
     ...item,
     amount: Number(amount),
     category,
     paymentMethod,
+    expenseDate: `${expenseDate}T${expenseTime}:00`,
     note,
     updatedAt: new Date().toISOString()
   } : item);
@@ -238,9 +248,10 @@ window.editExpense = async (id) => {
 
 function exportCsv() {
   const rows = [
-    ['日期', '類別', '付款方式', '金額', '備註'],
+    ['日期', '時間', '類別', '付款方式', '金額', '備註'],
     ...dashboardState.expenses.map((item) => [
       formatDateOnly(item.expenseDate),
+      formatTimeOnly(item.expenseDate),
       item.category,
       item.paymentMethod,
       item.amount,
