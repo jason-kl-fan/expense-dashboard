@@ -36,6 +36,46 @@ let categoryChart;
 let categoryPieChart;
 let amountValue = '0';
 
+const pieSliceLabelsPlugin = {
+  id: 'pieSliceLabels',
+  afterDatasetsDraw(chart, _args, pluginOptions) {
+    if (chart.config.type !== 'pie' || !pluginOptions?.display) return;
+
+    const { ctx } = chart;
+    const dataset = chart.data.datasets?.[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!dataset || !meta?.data?.length) return;
+
+    const rawValues = dataset.data.map((value) => Number(value) || 0);
+    const total = rawValues.reduce((sum, value) => sum + value, 0);
+    if (!total) return;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#3f3550';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.lineWidth = 4;
+    ctx.lineJoin = 'round';
+    ctx.font = `700 ${window.innerWidth <= 640 ? 11 : 12}px "Noto Sans TC", sans-serif`;
+
+    meta.data.forEach((arc, index) => {
+      const value = rawValues[index];
+      const ratio = total ? value / total : 0;
+      if (!ratio || ratio < 0.06) return;
+
+      const position = arc.tooltipPosition();
+      const label = `${(ratio * 100).toFixed(1)}%`;
+      ctx.strokeText(label, position.x, position.y);
+      ctx.fillText(label, position.x, position.y);
+    });
+
+    ctx.restore();
+  }
+};
+
+Chart.register(pieSliceLabelsPlugin);
+
 function setConnectionStatus(status, text, title = text) {
   connectionIndicator.classList.remove('connection-indicator--connected', 'connection-indicator--error', 'connection-indicator--connecting');
   connectionIndicator.classList.add(`connection-indicator--${status}`);
@@ -169,7 +209,6 @@ function renderChart(expenses) {
       }]
     },
     options: {
-      indexAxis: isMobile ? 'y' : 'x',
       responsive: true,
       maintainAspectRatio: false,
       alignToPixels: true,
@@ -184,18 +223,19 @@ function renderChart(expenses) {
       },
       scales: {
         x: {
-          beginAtZero: true,
           ticks: {
-            color: '#7a6f8b',
+            color: '#5f5374',
             font: {
-              size: isMobile ? 11 : 12,
-              weight: '600'
+              size: isMobile ? 12 : 12,
+              weight: '700'
             },
             maxRotation: 0,
-            minRotation: 0
+            minRotation: 0,
+            autoSkip: false,
+            padding: 8
           },
           grid: {
-            color: 'rgba(224, 208, 231, 0.5)'
+            display: false
           },
           border: {
             display: false
@@ -204,19 +244,17 @@ function renderChart(expenses) {
         y: {
           beginAtZero: true,
           ticks: {
-            color: '#5f5374',
+            color: '#7a6f8b',
             font: {
-              size: isMobile ? 13 : 12,
-              weight: '700'
+              size: isMobile ? 11 : 12,
+              weight: '600'
             },
             maxRotation: 0,
             minRotation: 0,
-            autoSkip: false,
             padding: 6
           },
           grid: {
-            display: !isMobile,
-            color: 'rgba(224, 208, 231, 0.35)'
+            color: 'rgba(224, 208, 231, 0.4)'
           },
           border: {
             display: false
@@ -243,6 +281,9 @@ function renderChart(expenses) {
       plugins: {
         legend: {
           position: 'bottom'
+        },
+        pieSliceLabels: {
+          display: totalAmount > 0
         }
       },
       layout: {
