@@ -165,6 +165,61 @@ function clearReceiptResult() {
   receiptExtracted.classList.add('hidden');
 }
 
+function loadImageElementFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('收據圖片讀取失敗'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('收據圖片轉換失敗'));
+    }, 'image/png', 1);
+  });
+}
+
+async function preprocessReceiptImage(file) {
+  const image = await loadImageElementFromFile(file);
+  const longestSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height);
+  const scale = longestSide > 2200 ? 2200 / longestSide : 1;
+  const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+  const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.05)';
+  ctx.drawImage(image, 0, 0, width, height);
+
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const { data } = imageData;
+  for (let i = 0; i < data.length; i += 4) {
+    const grayscale = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+    const boosted = grayscale > 178 ? 255 : grayscale < 92 ? 0 : Math.max(0, Math.min(255, ((grayscale - 128) * 1.55) + 128));
+    data[i] = boosted;
+    data[i + 1] = boosted;
+    data[i + 2] = boosted;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvasToBlob(canvas);
+}
+
 function renderReceiptResult(data) {
   const items = [
     { label: '辨識金額', value: data.amount != null ? formatCurrency(data.amount) : '未辨識到' },
@@ -187,6 +242,10 @@ function normalizeAmountDisplay(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
 }
 
+function formatUsDateLabel(year, month, day) {
+  return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}/${year}`;
+}
+
 function formatToInputDate(year, month, day) {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
@@ -197,94 +256,187 @@ function normalizeYear(year) {
   return numeric;
 }
 
-function extractReceiptDate(text) {
-  const patterns = [
-    /(\b\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4}\b)/,
-    /(\b\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2}\b)/
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (!match) continue;
-
-    if (pattern === patterns[0]) {
-      const month = Number(match[1]);
-      const day = Number(match[2]);
-      const year = normalizeYear(match[3]);
-      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-        return {
-          input: formatToInputDate(year, month, day),
-          label: `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}/${year}`
-        };
-      }
-    }
-
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      return {
-        input: formatToInputDate(year, month, day),
-        label: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      };
-    }
-  }
-
-  return { input: '', label: '' };
+function normalizeNumericLikeText(value) {
+  return value
+    .replace(/(\d)[Oo]/g, '$10')
+    .replace(/[Oo](\d)/g, '0$1')
+    .replace(/(\d)[Il]/g, '$11')
+    .replace(/[Il](\d)/g, '1$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function extractReceiptTime(text) {
-  const match = text.match(/(\b\d{1,2}:\d{2})(?:\s*([AP]M))?/i);
-  if (!match) return { input: '', label: '' };
-
-  let [hours, minutes] = match[1].split(':').map(Number);
-  const meridiem = match[2]?.toUpperCase();
-
-  if (meridiem === 'PM' && hours < 12) hours += 12;
-  if (meridiem === 'AM' && hours === 12) hours = 0;
-  if (hours > 23 || minutes > 59) return { input: '', label: '' };
-
-  const input = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-  return { input, label: match[2] ? `${match[1]} ${meridiem}` : input };
-}
-
-function parseAmountFromLine(line) {
-  const matches = [...line.matchAll(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})/g)];
-  if (!matches.length) return null;
-
-  const values = matches
+function extractAmountsFromLine(line) {
+  const normalized = normalizeNumericLikeText(line);
+  return [...normalized.matchAll(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})\b/g)]
     .map((match) => Number(match[1].replace(/,/g, '')))
-    .filter((value) => Number.isFinite(value) && value > 0);
+    .filter((value) => Number.isFinite(value) && value > 0 && value < 100000);
+}
 
-  return values.length ? Math.max(...values) : null;
+function scoreAmountLine(line) {
+  const normalized = normalizeNumericLikeText(line).toLowerCase();
+  let score = 0;
+  if (/grand\s*total/.test(normalized)) score += 18;
+  if (/amount\s*due|balance\s*due|total\s*due/.test(normalized)) score += 16;
+  if (/\btotal\b/.test(normalized)) score += 10;
+  if (/\$/.test(normalized)) score += 2;
+  if (/auth|approval|reference|invoice\s*#|order\s*#/.test(normalized)) score -= 3;
+  if (/subtotal/.test(normalized)) score -= 9;
+  if (/tax/.test(normalized)) score -= 8;
+  if (/tip/.test(normalized)) score -= 4;
+  if (/discount|saving|coupon/.test(normalized)) score -= 5;
+  if (/cash|change|visa|mastercard|debit|credit|card/.test(normalized)) score -= 4;
+  return score;
 }
 
 function extractReceiptAmount(lines) {
-  const priorityPatterns = [
-    /\bgrand\s*total\b/i,
-    /\bamount\s*due\b/i,
-    /\bbalance\s*due\b/i,
-    /\btotal\b/i
-  ];
-  const rejectPatterns = [/subtotal/i, /tax/i, /change/i, /cash/i, /visa/i, /mastercard/i, /debit/i];
+  const candidates = [];
 
-  for (const pattern of priorityPatterns) {
-    for (const line of lines) {
-      if (!pattern.test(line) || rejectPatterns.some((reject) => reject.test(line))) continue;
-      const amount = parseAmountFromLine(line);
-      if (amount != null) return amount;
+  lines.forEach((line, index) => {
+    const amounts = extractAmountsFromLine(line);
+    const score = scoreAmountLine(line);
+    amounts.forEach((value) => {
+      candidates.push({ value, score, index });
+    });
+
+    const nextLine = lines[index + 1];
+    if (nextLine && /grand\s*total|amount\s*due|balance\s*due|\btotal\b/i.test(line) && !amounts.length) {
+      extractAmountsFromLine(nextLine).forEach((value) => {
+        candidates.push({ value, score: score + 5, index: index + 0.25 });
+      });
     }
-  }
+  });
 
-  const fallbackValues = lines
-    .map((line) => parseAmountFromLine(line))
-    .filter((value) => value != null);
+  if (!candidates.length) return null;
 
-  return fallbackValues.length ? Math.max(...fallbackValues) : null;
+  candidates.sort((a, b) => (b.score - a.score) || (b.value - a.value) || (a.index - b.index));
+  const preferred = candidates.find((candidate) => candidate.score > 0);
+  return preferred?.value ?? candidates[0].value;
+}
+
+const MONTH_NAME_MAP = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12
+};
+
+function scoreDateLine(line) {
+  const normalized = line.toLowerCase();
+  let score = 0;
+  if (/\bdate\b|purchase|transaction/.test(normalized)) score += 6;
+  if (/dob|birth/.test(normalized)) score -= 10;
+  return score;
+}
+
+function buildDateCandidate(year, month, day, score) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const normalizedYear = normalizeYear(year);
+  return {
+    input: formatToInputDate(normalizedYear, month, day),
+    label: formatUsDateLabel(normalizedYear, month, day),
+    score
+  };
+}
+
+function extractReceiptDate(lines, fullText) {
+  const candidates = [];
+
+  const collectFromSource = (source, bonus = 0) => {
+    const normalized = normalizeNumericLikeText(source);
+
+    [...normalized.matchAll(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/g)].forEach((match) => {
+      const candidate = buildDateCandidate(match[3], Number(match[1]), Number(match[2]), scoreDateLine(source) + bonus);
+      if (candidate) candidates.push(candidate);
+    });
+
+    [...normalized.matchAll(/\b(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/g)].forEach((match) => {
+      const candidate = buildDateCandidate(match[1], Number(match[2]), Number(match[3]), scoreDateLine(source) + bonus + 1);
+      if (candidate) candidates.push(candidate);
+    });
+
+    [...source.matchAll(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+(\d{2,4})\b/ig)].forEach((match) => {
+      const month = MONTH_NAME_MAP[match[1].slice(0, 4).toLowerCase()];
+      const candidate = buildDateCandidate(match[3], month, Number(match[2]), scoreDateLine(source) + bonus + 2);
+      if (candidate) candidates.push(candidate);
+    });
+  };
+
+  lines.slice(0, 18).forEach((line) => collectFromSource(line));
+  if (!candidates.length && fullText) collectFromSource(fullText, -1);
+  if (!candidates.length) return { input: '', label: '' };
+
+  candidates.sort((a, b) => b.score - a.score);
+  return { input: candidates[0].input, label: candidates[0].label };
+}
+
+function buildTimeCandidate(hours, minutes, meridiem, score) {
+  let normalizedHours = Number(hours);
+  const normalizedMinutes = Number(minutes);
+  const upperMeridiem = meridiem?.toUpperCase();
+
+  if (upperMeridiem === 'PM' && normalizedHours < 12) normalizedHours += 12;
+  if (upperMeridiem === 'AM' && normalizedHours === 12) normalizedHours = 0;
+  if (normalizedHours > 23 || normalizedMinutes > 59) return null;
+
+  return {
+    input: `${String(normalizedHours).padStart(2, '0')}:${String(normalizedMinutes).padStart(2, '0')}`,
+    label: upperMeridiem
+      ? `${String(Number(hours)).padStart(2, '0')}:${String(normalizedMinutes).padStart(2, '0')} ${upperMeridiem}`
+      : `${String(normalizedHours).padStart(2, '0')}:${String(normalizedMinutes).padStart(2, '0')}`,
+    score
+  };
+}
+
+function scoreTimeLine(line) {
+  const normalized = line.toLowerCase();
+  let score = 0;
+  if (/\btime\b|purchase|transaction/.test(normalized)) score += 6;
+  if (/table|item|qty/.test(normalized)) score -= 4;
+  return score;
+}
+
+function extractReceiptTime(lines, fullText) {
+  const candidates = [];
+
+  const collectFromSource = (source, bonus = 0) => {
+    const normalized = normalizeNumericLikeText(source).replace(/(\d)\.(\d{2})(\s*[AP]M\b)/ig, '$1:$2$3');
+
+    [...normalized.matchAll(/\b(\d{1,2})[:](\d{2})(?:\s*([AP]M))?\b/ig)].forEach((match) => {
+      const candidate = buildTimeCandidate(match[1], match[2], match[3], scoreTimeLine(source) + bonus);
+      if (candidate) candidates.push(candidate);
+    });
+
+    [...normalized.matchAll(/\b(\d{1,2})(\d{2})\s*([AP]M)\b/ig)].forEach((match) => {
+      const candidate = buildTimeCandidate(match[1], match[2], match[3], scoreTimeLine(source) + bonus - 1);
+      if (candidate) candidates.push(candidate);
+    });
+  };
+
+  lines.slice(0, 20).forEach((line) => collectFromSource(line));
+  if (!candidates.length && fullText) collectFromSource(fullText, -1);
+  if (!candidates.length) return { input: '', label: '' };
+
+  candidates.sort((a, b) => b.score - a.score);
+  return { input: candidates[0].input, label: candidates[0].label };
 }
 
 function extractReceiptMerchant(lines) {
-  return lines.find((line) => !/^(receipt|invoice|order|thank you|visa|mastercard|subtotal|tax|total|date|time)$/i.test(line) && /[A-Za-z]/.test(line)) || '';
+  const candidates = lines.slice(0, 8)
+    .map((line, index) => {
+      const normalized = line.trim();
+      const lower = normalized.toLowerCase();
+      let score = 0;
+      if (/[A-Za-z]/.test(normalized)) score += 5;
+      if (!/\d{3,}/.test(normalized)) score += 2;
+      if (index <= 2) score += 2;
+      if (normalized === normalized.toUpperCase() && normalized.length <= 30) score += 1;
+      if (/receipt|invoice|thank you|subtotal|tax|total|date|time|visa|mastercard|debit|credit|cash|change|approval|auth/.test(lower)) score -= 7;
+      if (normalized.length < 3 || normalized.length > 42) score -= 2;
+      return { value: normalized, score };
+    })
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.value || '';
 }
 
 function parseReceiptText(text) {
@@ -295,8 +447,8 @@ function parseReceiptText(text) {
     .filter(Boolean)
     .slice(0, 40);
 
-  const dateInfo = extractReceiptDate(normalizedText);
-  const timeInfo = extractReceiptTime(normalizedText);
+  const dateInfo = extractReceiptDate(lines, normalizedText);
+  const timeInfo = extractReceiptTime(lines, normalizedText);
   const amount = extractReceiptAmount(lines);
   const merchant = extractReceiptMerchant(lines);
 
@@ -309,6 +461,10 @@ function parseReceiptText(text) {
     merchant,
     rawText: normalizedText
   };
+}
+
+function getReceiptResultScore(result) {
+  return [result.amount != null, Boolean(result.dateInput), Boolean(result.timeInput), Boolean(result.merchant)].filter(Boolean).length;
 }
 
 function applyReceiptToForm(result) {
@@ -344,24 +500,42 @@ async function scanReceipt() {
   }
 
   scanReceiptBtn.disabled = true;
-  setReceiptStatus('working', '正在辨識收據，請稍等一下…');
+  setReceiptStatus('working', '正在強化收據圖片並辨識，請稍等一下…');
 
   try {
-    const { data } = await window.Tesseract.recognize(file, 'eng', {
+    const processedImage = await preprocessReceiptImage(file);
+
+    const { data } = await window.Tesseract.recognize(processedImage, 'eng', {
       logger: (message) => {
         if (message.status === 'recognizing text' && typeof message.progress === 'number') {
-          setReceiptStatus('working', `正在辨識收據，約 ${Math.round(message.progress * 100)}%`);
+          setReceiptStatus('working', `正在辨識美國收據，約 ${Math.round(message.progress * 100)}%`);
         }
       }
     });
 
-    const result = parseReceiptText(data.text || '');
+    let result = parseReceiptText(data.text || '');
+
+    if (getReceiptResultScore(result) < 2) {
+      setReceiptStatus('working', '第一次辨識資訊偏少，正在用原始照片再試一次…');
+      const retry = await window.Tesseract.recognize(file, 'eng', {
+        logger: (message) => {
+          if (message.status === 'recognizing text' && typeof message.progress === 'number') {
+            setReceiptStatus('working', `正在二次辨識原始照片，約 ${Math.round(message.progress * 100)}%`);
+          }
+        }
+      });
+      const retryResult = parseReceiptText(retry.data?.text || '');
+      if (getReceiptResultScore(retryResult) >= getReceiptResultScore(result)) {
+        result = retryResult;
+      }
+    }
+
     applyReceiptToForm(result);
     renderReceiptResult(result);
 
     const filledFields = [result.amount != null ? '金額' : '', result.dateInput ? '日期' : '', result.timeInput ? '時間' : ''].filter(Boolean);
     if (filledFields.length) {
-      setReceiptStatus('success', `辨識完成，已自動帶入：${filledFields.join('、')}`);
+      setReceiptStatus('success', `辨識完成，已自動帶入：${filledFields.join('、')}（已優先套用美國格式）`);
     } else {
       setReceiptStatus('error', '辨識完成，但這張收據沒有成功抓到金額 / 日期 / 時間，建議換清楚一點的照片再試');
     }

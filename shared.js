@@ -13,6 +13,8 @@ export const DEFAULT_CATEGORIES = ['飲食', '交通', '生活用品', '娛樂',
 export const DEFAULT_PAYMENT_METHODS = ['現金', '信用卡', '簽帳金融卡', 'Line Pay', 'Apple Pay', '轉帳', '其他'];
 export const ADMIN_SESSION_KEY = 'expense-dashboard-admin-auth';
 export const ADMIN_PASSWORD_MIN_LENGTH = 6;
+export const APP_LOCALE = 'en-US';
+export const APP_CURRENCY = 'USD';
 
 export function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -28,18 +30,19 @@ export function normalizeSettings(rawSettings = {}) {
 
 export function formatDateTime(dateString) {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat('zh-TW', {
+  return new Intl.DateTimeFormat(APP_LOCALE, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    hour12: true
   }).format(date);
 }
 
 export function formatDateOnly(dateString) {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat('zh-TW', {
+  return new Intl.DateTimeFormat(APP_LOCALE, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
@@ -48,17 +51,17 @@ export function formatDateOnly(dateString) {
 
 export function formatTimeOnly(dateString) {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat('zh-TW', {
+  return new Intl.DateTimeFormat(APP_LOCALE, {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false
+    hour12: true
   }).format(date);
 }
 
 export function formatCurrency(value) {
-  return new Intl.NumberFormat('zh-TW', {
+  return new Intl.NumberFormat(APP_LOCALE, {
     style: 'currency',
-    currency: 'TWD',
+    currency: APP_CURRENCY,
     maximumFractionDigits: 2
   }).format(Number(value) || 0);
 }
