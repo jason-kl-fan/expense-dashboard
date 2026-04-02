@@ -3,14 +3,13 @@ import {
   uid,
   formatCurrency,
   formatDateOnly,
-  formatDateTime,
   getRangeStart,
   aggregateByCategory,
   CHART_PALETTE
 } from './shared.js';
 
 const liveClock = document.getElementById('liveClock');
-const syncStatus = document.getElementById('syncStatus');
+const connectionIndicator = document.getElementById('connectionIndicator');
 const amountDisplay = document.getElementById('amountDisplay');
 const keypad = document.getElementById('keypad');
 const backspaceBtn = document.getElementById('backspaceBtn');
@@ -32,6 +31,13 @@ const expenseList = document.getElementById('expenseList');
 let dashboardState = { categories: [], paymentMethods: [], expenses: [], settings: {} };
 let categoryChart;
 let amountValue = '0';
+
+function setConnectionStatus(status, text, title = text) {
+  connectionIndicator.classList.remove('connection-indicator--connected', 'connection-indicator--error', 'connection-indicator--connecting');
+  connectionIndicator.classList.add(`connection-indicator--${status}`);
+  connectionIndicator.title = title;
+  connectionIndicator.querySelector('.connection-text').textContent = text;
+}
 
 function tickClock() {
   liveClock.textContent = new Intl.DateTimeFormat('zh-TW', {
@@ -175,6 +181,18 @@ function refreshUI() {
   renderExpenseList(expenses);
 }
 
+async function persistState(partialState) {
+  try {
+    setConnectionStatus('connecting', '同步中', '資料儲存中');
+    await saveDashboardState(partialState);
+  } catch (error) {
+    console.error(error);
+    setConnectionStatus('error', '失敗', `寫入失敗：${error.message}`);
+    alert(`資料儲存失敗：${error.message}`);
+    throw error;
+  }
+}
+
 async function addExpense() {
   const amount = Number(amountValue);
   if (!amount || Number.isNaN(amount) || amount <= 0) {
@@ -193,8 +211,7 @@ async function addExpense() {
     updatedAt: new Date().toISOString()
   }];
 
-  syncStatus.textContent = '資料儲存中…';
-  await saveDashboardState({ expenses: nextExpenses });
+  await persistState({ expenses: nextExpenses });
   clearAmount();
   noteInput.value = '';
 }
@@ -222,16 +239,17 @@ tickClock();
 setInterval(tickClock, 1000);
 
 try {
+  setConnectionStatus('connecting', '連線中', '資料庫連線初始化中');
   await ensureRemoteState();
   subscribeDashboard((state) => {
     dashboardState = state;
-    syncStatus.textContent = '雲端同步完成';
+    setConnectionStatus('connected', '已連線', '資料庫連線正常');
     refreshUI();
   }, (error) => {
     console.error(error);
-    syncStatus.textContent = `同步失敗：${error.message}`;
+    setConnectionStatus('error', '失敗', `同步失敗：${error.message}`);
   });
 } catch (error) {
   console.error(error);
-  syncStatus.textContent = `初始化失敗：${error.message}`;
+  setConnectionStatus('error', '失敗', `初始化失敗：${error.message}`);
 }

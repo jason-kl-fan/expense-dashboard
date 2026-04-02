@@ -11,6 +11,11 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
+    <div class="connection-indicator connection-indicator--connecting" id="connectionIndicator" title="資料庫連線初始化中">
+      <span class="connection-light"></span>
+      <span class="connection-text">連線中</span>
+    </div>
+
     <div class="page-shell">
       <header class="hero">
         <div>
@@ -35,7 +40,6 @@
             <span class="live-clock" id="liveClock"></span>
           </div>
 
-          <div class="status-card" id="syncStatus">雲端同步初始化中…</div>
 
           <label class="amount-label">
             <span>金額</span>

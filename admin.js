@@ -11,6 +11,7 @@ import {
   formatDateOnly
 } from './shared.js';
 
+const connectionIndicator = document.getElementById('connectionIndicator');
 const adminAuthShell = document.getElementById('adminAuthShell');
 const adminLoginPanel = document.getElementById('adminLoginPanel');
 const adminSetupPanel = document.getElementById('adminSetupPanel');
@@ -33,6 +34,13 @@ const exportCsvBtn = document.getElementById('exportCsvBtn');
 const adminExpenseList = document.getElementById('adminExpenseList');
 
 let dashboardState = { categories: [], paymentMethods: [], expenses: [], settings: {} };
+
+function setConnectionStatus(status, text, title = text) {
+  connectionIndicator.classList.remove('connection-indicator--connected', 'connection-indicator--error', 'connection-indicator--connecting');
+  connectionIndicator.classList.add(`connection-indicator--${status}`);
+  connectionIndicator.title = title;
+  connectionIndicator.querySelector('.connection-text').textContent = text;
+}
 
 function isAdminUnlocked() {
   return hasAdminSession() && Boolean(normalizeSettings(dashboardState.settings).adminPassword);
@@ -95,13 +103,25 @@ function renderExpenseList() {
   `).join('');
 }
 
+async function persistState(partialState) {
+  try {
+    setConnectionStatus('connecting', '同步中', '資料儲存中');
+    await saveDashboardState(partialState);
+  } catch (error) {
+    console.error(error);
+    setConnectionStatus('error', '失敗', `寫入失敗：${error.message}`);
+    alert(`資料儲存失敗：${error.message}`);
+    throw error;
+  }
+}
+
 async function setupAdminPassword() {
   const password = setupAdminPasswordInput.value.trim();
   if (password.length < ADMIN_PASSWORD_MIN_LENGTH) {
     alert(`密碼至少要 ${ADMIN_PASSWORD_MIN_LENGTH} 碼`);
     return;
   }
-  await saveDashboardState({
+  await persistState({
     settings: {
       ...normalizeSettings(dashboardState.settings),
       adminPassword: password,
@@ -127,7 +147,7 @@ async function changeAdminPassword() {
     alert(`密碼至少要 ${ADMIN_PASSWORD_MIN_LENGTH} 碼`);
     return;
   }
-  await saveDashboardState({
+  await persistState({
     settings: {
       ...normalizeSettings(dashboardState.settings),
       adminPassword: password,
@@ -145,7 +165,7 @@ async function addCategory() {
     alert('類別已存在');
     return;
   }
-  await saveDashboardState({ categories: [...dashboardState.categories, value] });
+  await persistState({ categories: [...dashboardState.categories, value] });
   newCategoryInput.value = '';
 }
 
@@ -156,7 +176,7 @@ async function addPaymentMethod() {
     alert('付款方式已存在');
     return;
   }
-  await saveDashboardState({ paymentMethods: [...dashboardState.paymentMethods, value] });
+  await persistState({ paymentMethods: [...dashboardState.paymentMethods, value] });
   newPaymentMethodInput.value = '';
 }
 
@@ -164,7 +184,7 @@ window.removeCategory = async (name) => {
   if (!confirm(`確定刪除類別「${name}」？`)) return;
   const categories = dashboardState.categories.filter((item) => item !== name);
   const expenses = dashboardState.expenses.map((item) => item.category === name ? { ...item, category: '其他', updatedAt: new Date().toISOString() } : item);
-  await saveDashboardState({ categories, expenses });
+  await persistState({ categories, expenses });
 };
 
 window.editCategory = async (name) => {
@@ -172,14 +192,14 @@ window.editCategory = async (name) => {
   if (!next || next === name) return;
   const categories = dashboardState.categories.map((item) => item === name ? next : item);
   const expenses = dashboardState.expenses.map((item) => item.category === name ? { ...item, category: next, updatedAt: new Date().toISOString() } : item);
-  await saveDashboardState({ categories, expenses });
+  await persistState({ categories, expenses });
 };
 
 window.removePaymentMethod = async (name) => {
   if (!confirm(`確定刪除付款方式「${name}」？`)) return;
   const paymentMethods = dashboardState.paymentMethods.filter((item) => item !== name);
   const expenses = dashboardState.expenses.map((item) => item.paymentMethod === name ? { ...item, paymentMethod: '其他', updatedAt: new Date().toISOString() } : item);
-  await saveDashboardState({ paymentMethods, expenses });
+  await persistState({ paymentMethods, expenses });
 };
 
 window.editPaymentMethod = async (name) => {
@@ -187,12 +207,12 @@ window.editPaymentMethod = async (name) => {
   if (!next || next === name) return;
   const paymentMethods = dashboardState.paymentMethods.map((item) => item === name ? next : item);
   const expenses = dashboardState.expenses.map((item) => item.paymentMethod === name ? { ...item, paymentMethod: next, updatedAt: new Date().toISOString() } : item);
-  await saveDashboardState({ paymentMethods, expenses });
+  await persistState({ paymentMethods, expenses });
 };
 
 window.deleteExpense = async (id) => {
   if (!confirm('確定刪除這筆消費紀錄？')) return;
-  await saveDashboardState({ expenses: dashboardState.expenses.filter((item) => item.id !== id) });
+  await persistState({ expenses: dashboardState.expenses.filter((item) => item.id !== id) });
 };
 
 window.editExpense = async (id) => {
@@ -213,7 +233,7 @@ window.editExpense = async (id) => {
     note,
     updatedAt: new Date().toISOString()
   } : item);
-  await saveDashboardState({ expenses });
+  await persistState({ expenses });
 };
 
 function exportCsv() {
@@ -243,17 +263,21 @@ addPaymentMethodBtn.addEventListener('click', addPaymentMethod);
 exportCsvBtn.addEventListener('click', exportCsv);
 
 try {
+  setConnectionStatus('connecting', '連線中', '資料庫連線初始化中');
   await ensureRemoteState();
   subscribeDashboard((state) => {
     dashboardState = state;
+    setConnectionStatus('connected', '已連線', '資料庫連線正常');
     updateAuthUI();
     renderTags();
     renderExpenseList();
   }, (error) => {
     console.error(error);
+    setConnectionStatus('error', '失敗', `同步失敗：${error.message}`);
     authStatus.textContent = `同步失敗：${error.message}`;
   });
 } catch (error) {
   console.error(error);
+  setConnectionStatus('error', '失敗', `初始化失敗：${error.message}`);
   authStatus.textContent = `初始化失敗：${error.message}`;
 }

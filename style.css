@@ -5,6 +5,38 @@ body {
   background: linear-gradient(180deg, #fff6fb 0%, #f8f8ff 100%);
   color: #362f46;
 }
+.connection-indicator {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(224, 208, 231, 0.85);
+  box-shadow: 0 10px 24px rgba(157, 122, 176, 0.14);
+  color: #5f5374;
+  font-size: 13px;
+  font-weight: 700;
+}
+.connection-light {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f6b24b;
+  box-shadow: 0 0 0 4px rgba(246, 178, 75, 0.16);
+}
+.connection-indicator--connected .connection-light {
+  background: #50bf8d;
+  box-shadow: 0 0 0 4px rgba(80, 191, 141, 0.16);
+}
+.connection-indicator--error .connection-light {
+  background: #ff6b7c;
+  box-shadow: 0 0 0 4px rgba(255, 107, 124, 0.16);
+}
 .page-shell {
   max-width: 1200px;
   margin: 0 auto;
