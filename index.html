@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   </head>
   <body>
     <div class="connection-indicator connection-indicator--connecting" id="connectionIndicator" title="資料庫連線初始化中">
@@ -38,6 +39,31 @@
               <h2>新增消費紀錄</h2>
             </div>
             <span class="live-clock" id="liveClock"></span>
+          </div>
+
+          <div class="receipt-import-card">
+            <div class="subsection-title-row">
+              <div>
+                <p class="panel-kicker">收據快速帶入</p>
+                <h3>拍照 / 上傳收據</h3>
+              </div>
+            </div>
+
+            <label class="receipt-upload-label">
+              <span>收據照片</span>
+              <input id="receiptImageInput" type="file" accept="image/*" capture="environment" />
+            </label>
+
+            <p class="receipt-helper-text">支援手機拍照或上傳圖片。會優先辨識金額、日期、時間，並自動帶入下方表單讓你確認。</p>
+
+            <div class="button-row-wrap mt-12">
+              <button type="button" class="primary-btn" id="scanReceiptBtn">開始辨識收據</button>
+              <button type="button" class="ghost-btn" id="clearReceiptBtn">清除照片</button>
+            </div>
+
+            <div id="receiptStatus" class="receipt-status receipt-status--idle">尚未選擇收據照片</div>
+            <img id="receiptPreview" class="receipt-preview hidden" alt="收據預覽" />
+            <div id="receiptExtracted" class="receipt-result hidden"></div>
           </div>
 
 

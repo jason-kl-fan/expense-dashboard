@@ -30,11 +30,18 @@ const summaryCards = document.getElementById('summaryCards');
 const categoryBreakdown = document.getElementById('categoryBreakdown');
 const expenseList = document.getElementById('expenseList');
 const categoryPieBreakdown = document.getElementById('categoryPieBreakdown');
+const receiptImageInput = document.getElementById('receiptImageInput');
+const scanReceiptBtn = document.getElementById('scanReceiptBtn');
+const clearReceiptBtn = document.getElementById('clearReceiptBtn');
+const receiptStatus = document.getElementById('receiptStatus');
+const receiptPreview = document.getElementById('receiptPreview');
+const receiptExtracted = document.getElementById('receiptExtracted');
 
 let dashboardState = { categories: [], paymentMethods: [], expenses: [], settings: {} };
 let categoryChart;
 let categoryPieChart;
 let amountValue = '0';
+let receiptPreviewUrl = '';
 
 function drawOutlinedLabel(ctx, text, x, y, fontSize = 12) {
   ctx.save();
@@ -126,6 +133,244 @@ function setCurrentTimeDefault() {
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   expenseTimeInput.value = `${hours}:${minutes}`;
+}
+
+function setReceiptStatus(type, text) {
+  receiptStatus.className = `receipt-status receipt-status--${type}`;
+  receiptStatus.textContent = text;
+}
+
+function clearReceiptPreviewUrl() {
+  if (receiptPreviewUrl) {
+    URL.revokeObjectURL(receiptPreviewUrl);
+    receiptPreviewUrl = '';
+  }
+}
+
+function previewReceiptFile(file) {
+  clearReceiptPreviewUrl();
+  if (!file) {
+    receiptPreview.removeAttribute('src');
+    receiptPreview.classList.add('hidden');
+    return;
+  }
+
+  receiptPreviewUrl = URL.createObjectURL(file);
+  receiptPreview.src = receiptPreviewUrl;
+  receiptPreview.classList.remove('hidden');
+}
+
+function clearReceiptResult() {
+  receiptExtracted.innerHTML = '';
+  receiptExtracted.classList.add('hidden');
+}
+
+function renderReceiptResult(data) {
+  const items = [
+    { label: '辨識金額', value: data.amount != null ? formatCurrency(data.amount) : '未辨識到' },
+    { label: '辨識日期', value: data.dateLabel || '未辨識到' },
+    { label: '辨識時間', value: data.timeLabel || '未辨識到' },
+    { label: '店家 / 備註', value: data.merchant || '未辨識到' }
+  ];
+
+  receiptExtracted.innerHTML = items.map((item) => `
+    <div class="receipt-result-item">
+      <span>${item.label}</span>
+      <strong>${item.value}</strong>
+    </div>
+  `).join('');
+  receiptExtracted.classList.remove('hidden');
+}
+
+function normalizeAmountDisplay(value) {
+  if (!Number.isFinite(value)) return '0';
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+}
+
+function formatToInputDate(year, month, day) {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function normalizeYear(year) {
+  const numeric = Number(year);
+  if (numeric < 100) return numeric >= 70 ? 1900 + numeric : 2000 + numeric;
+  return numeric;
+}
+
+function extractReceiptDate(text) {
+  const patterns = [
+    /(\b\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4}\b)/,
+    /(\b\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2}\b)/
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    if (pattern === patterns[0]) {
+      const month = Number(match[1]);
+      const day = Number(match[2]);
+      const year = normalizeYear(match[3]);
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return {
+          input: formatToInputDate(year, month, day),
+          label: `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}/${year}`
+        };
+      }
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return {
+        input: formatToInputDate(year, month, day),
+        label: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      };
+    }
+  }
+
+  return { input: '', label: '' };
+}
+
+function extractReceiptTime(text) {
+  const match = text.match(/(\b\d{1,2}:\d{2})(?:\s*([AP]M))?/i);
+  if (!match) return { input: '', label: '' };
+
+  let [hours, minutes] = match[1].split(':').map(Number);
+  const meridiem = match[2]?.toUpperCase();
+
+  if (meridiem === 'PM' && hours < 12) hours += 12;
+  if (meridiem === 'AM' && hours === 12) hours = 0;
+  if (hours > 23 || minutes > 59) return { input: '', label: '' };
+
+  const input = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  return { input, label: match[2] ? `${match[1]} ${meridiem}` : input };
+}
+
+function parseAmountFromLine(line) {
+  const matches = [...line.matchAll(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})/g)];
+  if (!matches.length) return null;
+
+  const values = matches
+    .map((match) => Number(match[1].replace(/,/g, '')))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return values.length ? Math.max(...values) : null;
+}
+
+function extractReceiptAmount(lines) {
+  const priorityPatterns = [
+    /\bgrand\s*total\b/i,
+    /\bamount\s*due\b/i,
+    /\bbalance\s*due\b/i,
+    /\btotal\b/i
+  ];
+  const rejectPatterns = [/subtotal/i, /tax/i, /change/i, /cash/i, /visa/i, /mastercard/i, /debit/i];
+
+  for (const pattern of priorityPatterns) {
+    for (const line of lines) {
+      if (!pattern.test(line) || rejectPatterns.some((reject) => reject.test(line))) continue;
+      const amount = parseAmountFromLine(line);
+      if (amount != null) return amount;
+    }
+  }
+
+  const fallbackValues = lines
+    .map((line) => parseAmountFromLine(line))
+    .filter((value) => value != null);
+
+  return fallbackValues.length ? Math.max(...fallbackValues) : null;
+}
+
+function extractReceiptMerchant(lines) {
+  return lines.find((line) => !/^(receipt|invoice|order|thank you|visa|mastercard|subtotal|tax|total|date|time)$/i.test(line) && /[A-Za-z]/.test(line)) || '';
+}
+
+function parseReceiptText(text) {
+  const normalizedText = text.replace(/\r/g, '');
+  const lines = normalizedText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 40);
+
+  const dateInfo = extractReceiptDate(normalizedText);
+  const timeInfo = extractReceiptTime(normalizedText);
+  const amount = extractReceiptAmount(lines);
+  const merchant = extractReceiptMerchant(lines);
+
+  return {
+    amount,
+    dateInput: dateInfo.input,
+    dateLabel: dateInfo.label,
+    timeInput: timeInfo.input,
+    timeLabel: timeInfo.label,
+    merchant,
+    rawText: normalizedText
+  };
+}
+
+function applyReceiptToForm(result) {
+  if (result.amount != null) {
+    amountValue = normalizeAmountDisplay(result.amount);
+    updateAmountDisplay();
+  }
+
+  if (result.dateInput) expenseDateInput.value = result.dateInput;
+  if (result.timeInput) expenseTimeInput.value = result.timeInput;
+  if (result.merchant && !noteInput.value.trim()) noteInput.value = result.merchant;
+}
+
+function clearReceiptSelection() {
+  receiptImageInput.value = '';
+  clearReceiptPreviewUrl();
+  receiptPreview.removeAttribute('src');
+  receiptPreview.classList.add('hidden');
+  clearReceiptResult();
+  setReceiptStatus('idle', '尚未選擇收據照片');
+}
+
+async function scanReceipt() {
+  const file = receiptImageInput.files?.[0];
+  if (!file) {
+    alert('請先拍照或選擇一張收據圖片');
+    return;
+  }
+
+  if (!window.Tesseract) {
+    setReceiptStatus('error', 'OCR 元件尚未載入完成，請稍後再試');
+    return;
+  }
+
+  scanReceiptBtn.disabled = true;
+  setReceiptStatus('working', '正在辨識收據，請稍等一下…');
+
+  try {
+    const { data } = await window.Tesseract.recognize(file, 'eng', {
+      logger: (message) => {
+        if (message.status === 'recognizing text' && typeof message.progress === 'number') {
+          setReceiptStatus('working', `正在辨識收據，約 ${Math.round(message.progress * 100)}%`);
+        }
+      }
+    });
+
+    const result = parseReceiptText(data.text || '');
+    applyReceiptToForm(result);
+    renderReceiptResult(result);
+
+    const filledFields = [result.amount != null ? '金額' : '', result.dateInput ? '日期' : '', result.timeInput ? '時間' : ''].filter(Boolean);
+    if (filledFields.length) {
+      setReceiptStatus('success', `辨識完成，已自動帶入：${filledFields.join('、')}`);
+    } else {
+      setReceiptStatus('error', '辨識完成，但這張收據沒有成功抓到金額 / 日期 / 時間，建議換清楚一點的照片再試');
+    }
+  } catch (error) {
+    console.error(error);
+    setReceiptStatus('error', `辨識失敗：${error.message}`);
+  } finally {
+    scanReceiptBtn.disabled = false;
+  }
 }
 
 function combineExpenseDateTime(dateValue, timeValue) {
@@ -408,6 +653,14 @@ keypad.addEventListener('click', (event) => {
   if (!key) return;
   inputKey(key);
 });
+receiptImageInput.addEventListener('change', () => {
+  const file = receiptImageInput.files?.[0];
+  previewReceiptFile(file);
+  clearReceiptResult();
+  setReceiptStatus(file ? 'idle' : 'idle', file ? '已選擇收據照片，按「開始辨識收據」即可自動帶入表單' : '尚未選擇收據照片');
+});
+scanReceiptBtn.addEventListener('click', scanReceipt);
+clearReceiptBtn.addEventListener('click', clearReceiptSelection);
 backspaceBtn.addEventListener('click', backspaceAmount);
 clearBtn.addEventListener('click', clearAmount);
 addExpenseBtn.addEventListener('click', addExpense);
