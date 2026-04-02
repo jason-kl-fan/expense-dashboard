@@ -36,12 +36,45 @@ let categoryChart;
 let categoryPieChart;
 let amountValue = '0';
 
+function drawOutlinedLabel(ctx, text, x, y, fontSize = 12) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#3f3550';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.lineWidth = 4;
+  ctx.lineJoin = 'round';
+  ctx.font = `700 ${fontSize}px "Noto Sans TC", sans-serif`;
+  ctx.strokeText(text, x, y);
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+const barValueLabelsPlugin = {
+  id: 'barValueLabels',
+  afterDatasetsDraw(chart, _args, pluginOptions) {
+    if (chart.config.type !== 'bar' || !pluginOptions?.display) return;
+
+    const dataset = chart.data.datasets?.[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!dataset || !meta?.data?.length) return;
+
+    meta.data.forEach((bar, index) => {
+      const rawValue = Number(dataset.data[index]) || 0;
+      if (!rawValue) return;
+
+      const label = formatCurrency(rawValue);
+      const position = bar.tooltipPosition();
+      drawOutlinedLabel(chart.ctx, label, position.x, Math.max(position.y - 12, 16), window.innerWidth <= 640 ? 10 : 11);
+    });
+  }
+};
+
 const pieSliceLabelsPlugin = {
   id: 'pieSliceLabels',
   afterDatasetsDraw(chart, _args, pluginOptions) {
     if (chart.config.type !== 'pie' || !pluginOptions?.display) return;
 
-    const { ctx } = chart;
     const dataset = chart.data.datasets?.[0];
     const meta = chart.getDatasetMeta(0);
     if (!dataset || !meta?.data?.length) return;
@@ -50,15 +83,6 @@ const pieSliceLabelsPlugin = {
     const total = rawValues.reduce((sum, value) => sum + value, 0);
     if (!total) return;
 
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#3f3550';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.lineWidth = 4;
-    ctx.lineJoin = 'round';
-    ctx.font = `700 ${window.innerWidth <= 640 ? 11 : 12}px "Noto Sans TC", sans-serif`;
-
     meta.data.forEach((arc, index) => {
       const value = rawValues[index];
       const ratio = total ? value / total : 0;
@@ -66,15 +90,12 @@ const pieSliceLabelsPlugin = {
 
       const position = arc.tooltipPosition();
       const label = `${(ratio * 100).toFixed(1)}%`;
-      ctx.strokeText(label, position.x, position.y);
-      ctx.fillText(label, position.x, position.y);
+      drawOutlinedLabel(chart.ctx, label, position.x, position.y, window.innerWidth <= 640 ? 11 : 12);
     });
-
-    ctx.restore();
   }
 };
 
-Chart.register(pieSliceLabelsPlugin);
+Chart.register(barValueLabelsPlugin, pieSliceLabelsPlugin);
 
 function setConnectionStatus(status, text, title = text) {
   connectionIndicator.classList.remove('connection-indicator--connected', 'connection-indicator--error', 'connection-indicator--connecting');
@@ -212,10 +233,15 @@ function renderChart(expenses) {
       responsive: true,
       maintainAspectRatio: false,
       alignToPixels: true,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        barValueLabels: {
+          display: true
+        }
+      },
       layout: {
         padding: {
-          top: 8,
+          top: 26,
           right: 10,
           bottom: 4,
           left: 4

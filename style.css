@@ -202,8 +202,22 @@ input[type="time"] {
   width: 100% !important;
   max-width: 100%;
 }
+.chart-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.bar-chart-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 280px;
+}
 #categoryChart {
-  height: 280px !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 .pie-chart-wrap {
   position: relative;
@@ -301,7 +315,12 @@ input[type="time"] {
   }
 
   #categoryChart {
-    height: 240px !important;
+    height: 100% !important;
+  }
+
+  .bar-chart-wrap {
+    min-width: 560px;
+    height: 280px;
   }
 
   .pie-chart-wrap {
