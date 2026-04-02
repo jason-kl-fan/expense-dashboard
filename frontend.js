@@ -190,24 +190,45 @@ function canvasToBlob(canvas) {
   });
 }
 
-async function preprocessReceiptImage(file) {
+async function buildReceiptCanvas(file, options = {}) {
   const image = await loadImageElementFromFile(file);
+  const {
+    cropTopRatio = 0,
+    cropBottomRatio = 1,
+    maxLongestSide = 2200
+  } = options;
+
   const longestSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height);
-  const scale = longestSide > 2200 ? 2200 / longestSide : 1;
+  const scale = longestSide > maxLongestSide ? maxLongestSide / longestSide : 1;
   const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
   const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
 
   const canvas = document.createElement('canvas');
+  const sourceTop = Math.max(0, Math.min(image.naturalHeight || image.height, Math.round((image.naturalHeight || image.height) * cropTopRatio)));
+  const sourceBottom = Math.max(sourceTop + 1, Math.min(image.naturalHeight || image.height, Math.round((image.naturalHeight || image.height) * cropBottomRatio)));
+  const sourceHeight = sourceBottom - sourceTop;
+  const outputHeight = Math.max(1, Math.round(sourceHeight * scale));
+
   canvas.width = width;
-  canvas.height = height;
+  canvas.height = outputHeight;
 
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, width, outputHeight);
   ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.05)';
-  ctx.drawImage(image, 0, 0, width, height);
+  ctx.drawImage(
+    image,
+    0,
+    sourceTop,
+    image.naturalWidth || image.width,
+    sourceHeight,
+    0,
+    0,
+    width,
+    outputHeight
+  );
 
-  const imageData = ctx.getImageData(0, 0, width, height);
+  const imageData = ctx.getImageData(0, 0, width, outputHeight);
   const { data } = imageData;
   for (let i = 0; i < data.length; i += 4) {
     const grayscale = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
@@ -217,6 +238,11 @@ async function preprocessReceiptImage(file) {
     data[i + 2] = boosted;
   }
   ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+async function preprocessReceiptImage(file, options = {}) {
+  const canvas = await buildReceiptCanvas(file, options);
   return canvasToBlob(canvas);
 }
 
@@ -262,6 +288,15 @@ function normalizeNumericLikeText(value) {
     .replace(/[Oo](\d)/g, '0$1')
     .replace(/(\d)[Il]/g, '$11')
     .replace(/[Il](\d)/g, '1$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeMerchantText(value) {
+  return value
+    .replace(/[|]/g, 'I')
+    .replace(/[€]/g, 'C')
+    .replace(/[®©™]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -419,38 +454,153 @@ function extractReceiptTime(lines, fullText) {
   return { input: candidates[0].input, label: candidates[0].label };
 }
 
-function extractReceiptMerchant(lines) {
-  const candidates = lines.slice(0, 8)
-    .map((line, index) => {
-      const normalized = line.trim();
-      const lower = normalized.toLowerCase();
+const KNOWN_US_MERCHANTS = [
+  ['Costco', ['costco', 'costco wholesale']],
+  ['Target', ['target']],
+  ['Walmart', ['walmart', 'wal mart']],
+  ["Trader Joe's", ["trader joe's", 'trader joes', 'traderjoe']],
+  ['Safeway', ['safeway']],
+  ['Whole Foods', ['whole foods', 'wholefoods', 'whole foods market']],
+  ['Amazon', ['amazon', 'amzn']],
+  ['Starbucks', ['starbucks', 'sbux']],
+  ['McDonald\'s', ['mcdonalds', "mcdonald's", 'mcdonald']],
+  ['Chipotle', ['chipotle']],
+  ['In-N-Out', ['innout', 'in n out', 'in-n-out']],
+  ['Subway', ['subway']],
+  ['CVS', ['cvs', 'cvs pharmacy']],
+  ['Walgreens', ['walgreens']],
+  ['7-Eleven', ['7eleven', '7-eleven']],
+  ['Shell', ['shell']],
+  ['Chevron', ['chevron']],
+  ['Exxon', ['exxon', 'exxonmobil']],
+  ['Mobil', ['mobil']],
+  ['Home Depot', ['home depot', 'homedepot']],
+  ['IKEA', ['ikea']],
+  ['Best Buy', ['best buy', 'bestbuy']],
+  ['Dollar Tree', ['dollar tree', 'dollartree']],
+  ['Ross', ['ross', 'ross dress for less']],
+  ['Macy\'s', ['macys', "macy's"]]
+];
+
+function canonicalizeMerchantKey(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function levenshteinDistance(a, b) {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+  for (let i = 0; i < rows; i += 1) matrix[i][0] = i;
+  for (let j = 0; j < cols; j += 1) matrix[0][j] = j;
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[rows - 1][cols - 1];
+}
+
+function matchKnownMerchant(rawValue) {
+  const key = canonicalizeMerchantKey(rawValue);
+  if (!key || key.length < 3) return '';
+
+  let bestMatch = { score: 0, name: '' };
+
+  KNOWN_US_MERCHANTS.forEach(([name, aliases]) => {
+    aliases.forEach((alias) => {
+      const aliasKey = canonicalizeMerchantKey(alias);
+      if (!aliasKey) return;
+
       let score = 0;
-      if (/[A-Za-z]/.test(normalized)) score += 5;
-      if (!/\d{3,}/.test(normalized)) score += 2;
-      if (index <= 2) score += 2;
-      if (normalized === normalized.toUpperCase() && normalized.length <= 30) score += 1;
-      if (/receipt|invoice|thank you|subtotal|tax|total|date|time|visa|mastercard|debit|credit|cash|change|approval|auth/.test(lower)) score -= 7;
-      if (normalized.length < 3 || normalized.length > 42) score -= 2;
-      return { value: normalized, score };
-    })
+      if (key === aliasKey) score = 1;
+      else if (key.includes(aliasKey) || aliasKey.includes(key)) score = 0.94;
+      else {
+        const distance = levenshteinDistance(key, aliasKey);
+        const similarity = 1 - (distance / Math.max(key.length, aliasKey.length));
+        score = similarity;
+      }
+
+      if (score > bestMatch.score) bestMatch = { score, name };
+    });
+  });
+
+  return bestMatch.score >= 0.74 ? bestMatch.name : '';
+}
+
+function cleanMerchantCandidate(line) {
+  return normalizeMerchantText(line)
+    .replace(/\b(store|location|branch|terminal|register|lane|station)\s*#?\d+\b/ig, '')
+    .replace(/#\s*\d{1,6}\b/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[^A-Za-z]+|[^A-Za-z0-9'&\-.]+$/g, '')
+    .trim();
+}
+
+function scoreMerchantLine(line, index, sourceLabel = 'full') {
+  const normalized = cleanMerchantCandidate(line);
+  const lower = normalized.toLowerCase();
+  let score = 0;
+
+  if (!normalized) return { value: '', score: -999 };
+  if (/[A-Za-z]/.test(normalized)) score += 6;
+  if (!/\d{3,}/.test(normalized)) score += 2;
+  if (index <= 2) score += 4;
+  else if (index <= 5) score += 2;
+  if (sourceLabel === 'top') score += 5;
+  if (normalized === normalized.toUpperCase() && normalized.length <= 32) score += 2;
+  if (normalized.split(' ').length <= 4) score += 2;
+
+  if (/receipt|invoice|thank you|welcome|visit again|customer copy|merchant copy|order|transaction|approval|auth|subtotal|tax|total|balance|amount due|cash|change|visa|mastercard|debit|credit|payment|server|cashier|item|qty|sku|table/i.test(lower)) score -= 10;
+  if (/street|st\b|avenue|ave\b|boulevard|blvd|road|rd\b|drive|dr\b|suite|ste\b|floor|fl\b|highway|hwy|way\b|plaza|city|ca\b|ny\b|tx\b/.test(lower)) score -= 8;
+  if (/\bwww\.|\.com\b|@/.test(lower)) score -= 8;
+  if (/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/.test(normalized)) score -= 10;
+  if (/\d{5}(?:-\d{4})?\b/.test(normalized)) score -= 7;
+  if (normalized.length < 3 || normalized.length > 40) score -= 4;
+
+  const knownMerchant = matchKnownMerchant(normalized);
+  if (knownMerchant) score += 8;
+
+  return { value: knownMerchant || normalized, score };
+}
+
+function extractReceiptMerchant(fullLines, topLines = []) {
+  const candidates = [
+    ...topLines.slice(0, 10).map((line, index) => scoreMerchantLine(line, index, 'top')),
+    ...fullLines.slice(0, 10).map((line, index) => scoreMerchantLine(line, index, 'full'))
+  ]
     .filter((candidate) => candidate.score > 0)
     .sort((a, b) => b.score - a.score);
 
   return candidates[0]?.value || '';
 }
 
-function parseReceiptText(text) {
+function parseReceiptText(text, options = {}) {
+  const topText = options.topText || '';
   const normalizedText = text.replace(/\r/g, '');
   const lines = normalizedText
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 40);
+  const topLines = topText
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 18);
 
   const dateInfo = extractReceiptDate(lines, normalizedText);
   const timeInfo = extractReceiptTime(lines, normalizedText);
   const amount = extractReceiptAmount(lines);
-  const merchant = extractReceiptMerchant(lines);
+  const merchant = extractReceiptMerchant(lines, topLines);
 
   return {
     amount,
@@ -500,10 +650,11 @@ async function scanReceipt() {
   }
 
   scanReceiptBtn.disabled = true;
-  setReceiptStatus('working', '正在強化收據圖片並辨識，請稍等一下…');
+  setReceiptStatus('working', '正在強化收據圖片並辨識，會另外加強掃描收據上半部店名…');
 
   try {
     const processedImage = await preprocessReceiptImage(file);
+    const topProcessedImage = await preprocessReceiptImage(file, { cropTopRatio: 0, cropBottomRatio: 0.32, maxLongestSide: 1800 });
 
     const { data } = await window.Tesseract.recognize(processedImage, 'eng', {
       logger: (message) => {
@@ -513,10 +664,19 @@ async function scanReceipt() {
       }
     });
 
-    let result = parseReceiptText(data.text || '');
+    setReceiptStatus('working', '正在加強辨識收據上半部店家名稱…');
+    const topScan = await window.Tesseract.recognize(topProcessedImage, 'eng', {
+      logger: (message) => {
+        if (message.status === 'recognizing text' && typeof message.progress === 'number') {
+          setReceiptStatus('working', `正在辨識上半部店名，約 ${Math.round(message.progress * 100)}%`);
+        }
+      }
+    });
 
-    if (getReceiptResultScore(result) < 2) {
-      setReceiptStatus('working', '第一次辨識資訊偏少，正在用原始照片再試一次…');
+    let result = parseReceiptText(data.text || '', { topText: topScan.data?.text || '' });
+
+    if (getReceiptResultScore(result) < 2 || !result.merchant) {
+      setReceiptStatus('working', '第一次辨識店家或欄位資訊偏少，正在用原始照片再試一次…');
       const retry = await window.Tesseract.recognize(file, 'eng', {
         logger: (message) => {
           if (message.status === 'recognizing text' && typeof message.progress === 'number') {
@@ -524,7 +684,7 @@ async function scanReceipt() {
           }
         }
       });
-      const retryResult = parseReceiptText(retry.data?.text || '');
+      const retryResult = parseReceiptText(retry.data?.text || '', { topText: topScan.data?.text || '' });
       if (getReceiptResultScore(retryResult) >= getReceiptResultScore(result)) {
         result = retryResult;
       }
@@ -533,7 +693,7 @@ async function scanReceipt() {
     applyReceiptToForm(result);
     renderReceiptResult(result);
 
-    const filledFields = [result.amount != null ? '金額' : '', result.dateInput ? '日期' : '', result.timeInput ? '時間' : ''].filter(Boolean);
+    const filledFields = [result.amount != null ? '金額' : '', result.dateInput ? '日期' : '', result.timeInput ? '時間' : '', result.merchant ? '店家' : ''].filter(Boolean);
     if (filledFields.length) {
       setReceiptStatus('success', `辨識完成，已自動帶入：${filledFields.join('、')}（已優先套用美國格式）`);
     } else {
