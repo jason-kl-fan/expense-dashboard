@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>哈狗財務助理</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Husky Finance Assistant</p>
+          <h1>哈狗財務助理</h1>
+          <p class="hero-text">快速記錄個人消費、分類統計、區間分析，讓記帳變得簡單一點。</p>
+        </div>
+        <div class="hero-card">
+          <div class="hero-badge">🐶 個人消費記錄</div>
+          <p>支援小數點金額、按鈕式輸入、付款方式紀錄與類別統計。</p>
+          <a class="link-btn" href="admin.html">前往後台管理</a>
+        </div>
+      </header>
+
+      <main class="frontend-layout">
+        <section class="panel input-panel">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">快速輸入</p>
+              <h2>新增消費紀錄</h2>
+            </div>
+            <span class="live-clock" id="liveClock"></span>
+          </div>
+
+          <div class="status-card" id="syncStatus">雲端同步初始化中…</div>
+
+          <label class="amount-label">
+            <span>金額</span>
+            <input id="amountDisplay" type="text" value="0" readonly />
+          </label>
+
+          <div class="keypad" id="keypad">
+            <button type="button" data-key="7">7</button>
+            <button type="button" data-key="8">8</button>
+            <button type="button" data-key="9">9</button>
+            <button type="button" data-key="4">4</button>
+            <button type="button" data-key="5">5</button>
+            <button type="button" data-key="6">6</button>
+            <button type="button" data-key="1">1</button>
+            <button type="button" data-key="2">2</button>
+            <button type="button" data-key="3">3</button>
+            <button type="button" data-key="00">00</button>
+            <button type="button" data-key="0">0</button>
+            <button type="button" data-key=".">.</button>
+          </div>
+
+          <div class="button-row-wrap mt-12">
+            <button type="button" class="ghost-btn" id="backspaceBtn">刪除</button>
+            <button type="button" class="ghost-btn" id="clearBtn">清空</button>
+          </div>
+
+          <div class="form-grid single-column mt-18">
+            <label>
+              <span>消費類別</span>
+              <select id="categorySelect"></select>
+            </label>
+            <label>
+              <span>付款方式</span>
+              <select id="paymentMethodSelect"></select>
+            </label>
+            <label>
+              <span>消費日期</span>
+              <input id="expenseDateInput" type="date" />
+            </label>
+            <label>
+              <span>備註</span>
+              <input id="noteInput" type="text" placeholder="例如：早餐、捷運、網購" />
+            </label>
+          </div>
+
+          <div class="action-buttons one-button-row">
+            <button id="addExpenseBtn" class="primary-btn">新增消費</button>
+          </div>
+        </section>
+
+        <section class="panel stats-panel">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">統計總覽</p>
+              <h2>支出分析</h2>
+            </div>
+          </div>
+
+          <div class="filter-bar three-col">
+            <label>
+              <span>統計區間</span>
+              <select id="rangeSelect">
+                <option value="day">日</option>
+                <option value="week">週</option>
+                <option value="month" selected>月</option>
+                <option value="year">年</option>
+                <option value="custom">自訂</option>
+              </select>
+            </label>
+            <label id="customStartWrap" class="hidden">
+              <span>開始日期</span>
+              <input id="customStartDateInput" type="date" />
+            </label>
+            <label id="customEndWrap" class="hidden">
+              <span>結束日期</span>
+              <input id="customEndDateInput" type="date" />
+            </label>
+          </div>
+
+          <div class="summary-cards" id="summaryCards"></div>
+
+          <div class="charts-grid single-chart-grid">
+            <div class="chart-card">
+              <h3>各類別累積消費</h3>
+              <canvas id="categoryChart"></canvas>
+              <div id="categoryBreakdown" class="chart-stats-list"></div>
+            </div>
+          </div>
+
+          <div class="table-card mt-18">
+            <div class="subsection-title-row">
+              <h3>消費明細</h3>
+              <span class="table-tip">顯示目前篩選區間內的紀錄</span>
+            </div>
+            <div id="expenseList" class="record-list empty-state">目前沒有資料。</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="frontend.js"></script>
+  </body>
+</html>

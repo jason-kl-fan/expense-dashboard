@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>哈狗財務助理｜後台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">Admin Console</p>
+          <h1>哈狗財務助理｜後台</h1>
+          <p class="hero-text">管理密碼、消費類別、付款方式，以及編輯每一筆消費紀錄。</p>
+        </div>
+        <div class="hero-card">
+          <div class="hero-badge">🔐 後台管理</div>
+          <p>這是簡化版密碼保護，先方便你快速試看。</p>
+          <a class="link-btn" href="index.html">回到前台</a>
+        </div>
+      </header>
+
+      <main id="adminAuthShell">
+        <section class="panel admin-auth-panel" id="adminLoginPanel">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">管理登入</p>
+              <h2>輸入後台密碼</h2>
+            </div>
+          </div>
+          <div class="status-card" id="authStatus">尚未登入後台。</div>
+          <div class="form-grid single-column mt-18">
+            <label>
+              <span>管理密碼</span>
+              <input id="adminPasswordInput" type="password" placeholder="請輸入管理密碼" />
+            </label>
+          </div>
+          <div class="action-buttons one-button-row">
+            <button id="adminLoginBtn" class="primary-btn">進入後台</button>
+          </div>
+        </section>
+
+        <section class="panel admin-auth-panel hidden" id="adminSetupPanel">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">首次設定</p>
+              <h2>先建立後台密碼</h2>
+            </div>
+          </div>
+          <div class="form-grid single-column mt-18">
+            <label>
+              <span>新管理密碼</span>
+              <input id="setupAdminPasswordInput" type="password" placeholder="至少 6 碼" />
+            </label>
+          </div>
+          <div class="action-buttons one-button-row">
+            <button id="setupAdminPasswordBtn" class="primary-btn">儲存密碼</button>
+          </div>
+        </section>
+      </main>
+
+      <main class="admin-layout hidden" id="adminAppShell">
+        <section class="panel input-panel">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">基本設定</p>
+              <h2>管理項目</h2>
+            </div>
+            <button id="adminLogoutBtn" class="ghost-btn">登出</button>
+          </div>
+
+          <div class="settings-card">
+            <h3>修改後台密碼</h3>
+            <div class="inline-creator-row">
+              <input id="newAdminPasswordInput" type="password" placeholder="輸入新密碼" />
+              <button id="changeAdminPasswordBtn" class="ghost-btn">修改密碼</button>
+            </div>
+          </div>
+
+          <div class="settings-card mt-18">
+            <h3>消費類別管理</h3>
+            <div class="inline-creator-row">
+              <input id="newCategoryInput" type="text" placeholder="新增類別" />
+              <button id="addCategoryBtn" class="ghost-btn">新增</button>
+            </div>
+            <div id="categoryTags" class="tag-list"></div>
+          </div>
+
+          <div class="settings-card mt-18">
+            <h3>付款方式管理</h3>
+            <div class="inline-creator-row">
+              <input id="newPaymentMethodInput" type="text" placeholder="新增付款方式" />
+              <button id="addPaymentMethodBtn" class="ghost-btn">新增</button>
+            </div>
+            <div id="paymentMethodTags" class="tag-list"></div>
+          </div>
+        </section>
+
+        <section class="panel stats-panel">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">後台總覽</p>
+              <h2>紀錄管理與匯出</h2>
+            </div>
+          </div>
+
+          <div class="button-row-wrap">
+            <button id="exportCsvBtn" class="ghost-btn">匯出 CSV</button>
+          </div>
+
+          <div class="table-card mt-18">
+            <div class="subsection-title-row">
+              <h3>全部消費紀錄</h3>
+              <span class="table-tip">可直接編輯或刪除</span>
+            </div>
+            <div id="adminExpenseList" class="record-list empty-state">目前沒有資料。</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="admin.js"></script>
+  </body>
+</html>
