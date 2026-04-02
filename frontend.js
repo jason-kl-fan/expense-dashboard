@@ -552,9 +552,27 @@ function combineExpenseDateTime(dateValue, timeValue) {
   return `${dateValue}T${safeTime}:00`;
 }
 
+function getPreferredPaymentMethod() {
+  if (dashboardState.paymentMethods.includes('信用卡')) return '信用卡';
+  return dashboardState.paymentMethods[0] || '';
+}
+
 function renderSelectors() {
+  const previousCategory = categorySelect.value;
+  const previousPaymentMethod = paymentMethodSelect.value;
+
   categorySelect.innerHTML = dashboardState.categories.map((item) => `<option value="${item}">${item}</option>`).join('');
   paymentMethodSelect.innerHTML = dashboardState.paymentMethods.map((item) => `<option value="${item}">${item}</option>`).join('');
+
+  if (dashboardState.categories.includes(previousCategory)) {
+    categorySelect.value = previousCategory;
+  }
+
+  if (dashboardState.paymentMethods.includes(previousPaymentMethod)) {
+    paymentMethodSelect.value = previousPaymentMethod;
+  } else {
+    paymentMethodSelect.value = getPreferredPaymentMethod();
+  }
 }
 
 function updateAmountDisplay() {
@@ -820,6 +838,7 @@ async function addExpense() {
   clearAmount();
   setCurrentTimeDefault();
   noteInput.value = '';
+  paymentMethodSelect.value = getPreferredPaymentMethod();
 }
 
 keypad.addEventListener('click', (event) => {

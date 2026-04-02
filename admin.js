@@ -34,8 +34,19 @@ const addPaymentMethodBtn = document.getElementById('addPaymentMethodBtn');
 const paymentMethodTags = document.getElementById('paymentMethodTags');
 const exportCsvBtn = document.getElementById('exportCsvBtn');
 const adminExpenseList = document.getElementById('adminExpenseList');
+const editExpenseModal = document.getElementById('editExpenseModal');
+const closeEditExpenseModalBtn = document.getElementById('closeEditExpenseModalBtn');
+const cancelEditExpenseBtn = document.getElementById('cancelEditExpenseBtn');
+const saveEditExpenseBtn = document.getElementById('saveEditExpenseBtn');
+const editExpenseAmountInput = document.getElementById('editExpenseAmountInput');
+const editExpenseCategorySelect = document.getElementById('editExpenseCategorySelect');
+const editExpensePaymentMethodSelect = document.getElementById('editExpensePaymentMethodSelect');
+const editExpenseDateInput = document.getElementById('editExpenseDateInput');
+const editExpenseTimeInput = document.getElementById('editExpenseTimeInput');
+const editExpenseNoteInput = document.getElementById('editExpenseNoteInput');
 
 let dashboardState = { categories: [], paymentMethods: [], expenses: [], settings: {} };
+let editingExpenseId = null;
 
 function setConnectionStatus(status, text, title = text) {
   connectionIndicator.classList.remove('connection-indicator--connected', 'connection-indicator--error', 'connection-indicator--connecting');
@@ -103,6 +114,42 @@ function renderExpenseList() {
       </div>
     </div>
   `).join('');
+}
+
+function renderEditExpenseSelectors(selectedCategory = '', selectedPaymentMethod = '') {
+  editExpenseCategorySelect.innerHTML = dashboardState.categories
+    .map((item) => `<option value="${item}">${item}</option>`)
+    .join('');
+
+  editExpensePaymentMethodSelect.innerHTML = dashboardState.paymentMethods
+    .map((item) => `<option value="${item}">${item}</option>`)
+    .join('');
+
+  if (dashboardState.categories.includes(selectedCategory)) {
+    editExpenseCategorySelect.value = selectedCategory;
+  }
+  if (dashboardState.paymentMethods.includes(selectedPaymentMethod)) {
+    editExpensePaymentMethodSelect.value = selectedPaymentMethod;
+  }
+}
+
+function openEditExpenseModal(expense) {
+  const currentExpenseDate = new Date(expense.expenseDate);
+  const dateDefault = `${currentExpenseDate.getFullYear()}-${String(currentExpenseDate.getMonth() + 1).padStart(2, '0')}-${String(currentExpenseDate.getDate()).padStart(2, '0')}`;
+  const timeDefault = `${String(currentExpenseDate.getHours()).padStart(2, '0')}:${String(currentExpenseDate.getMinutes()).padStart(2, '0')}`;
+
+  editingExpenseId = expense.id;
+  renderEditExpenseSelectors(expense.category, expense.paymentMethod);
+  editExpenseAmountInput.value = expense.amount;
+  editExpenseDateInput.value = dateDefault;
+  editExpenseTimeInput.value = timeDefault;
+  editExpenseNoteInput.value = expense.note || '';
+  editExpenseModal.classList.remove('hidden');
+}
+
+function closeEditExpenseModal() {
+  editingExpenseId = null;
+  editExpenseModal.classList.add('hidden');
 }
 
 async function persistState(partialState) {
@@ -220,31 +267,50 @@ window.deleteExpense = async (id) => {
 window.editExpense = async (id) => {
   const target = dashboardState.expenses.find((item) => item.id === id);
   if (!target) return;
-  const currentExpenseDate = new Date(target.expenseDate);
-  const dateDefault = `${currentExpenseDate.getFullYear()}-${String(currentExpenseDate.getMonth() + 1).padStart(2, '0')}-${String(currentExpenseDate.getDate()).padStart(2, '0')}`;
-  const timeDefault = `${String(currentExpenseDate.getHours()).padStart(2, '0')}:${String(currentExpenseDate.getMinutes()).padStart(2, '0')}`;
-  const amount = prompt('金額', target.amount);
-  if (amount === null) return;
-  const category = prompt('類別', target.category);
-  if (!category) return;
-  const paymentMethod = prompt('付款方式', target.paymentMethod);
-  if (!paymentMethod) return;
-  const expenseDate = prompt('消費日期（YYYY-MM-DD）', dateDefault);
-  if (!expenseDate) return;
-  const expenseTime = prompt('消費時間（HH:mm）', timeDefault);
-  if (!expenseTime) return;
-  const note = prompt('備註', target.note || '') ?? '';
-  const expenses = dashboardState.expenses.map((item) => item.id === id ? {
+  openEditExpenseModal(target);
+};
+
+async function saveEditedExpense() {
+  if (!editingExpenseId) return;
+
+  const amount = Number(editExpenseAmountInput.value);
+  if (!amount || Number.isNaN(amount) || amount <= 0) {
+    alert('請輸入正確金額');
+    return;
+  }
+
+  if (!editExpenseCategorySelect.value) {
+    alert('請選擇消費類別');
+    return;
+  }
+
+  if (!editExpensePaymentMethodSelect.value) {
+    alert('請選擇付款方式');
+    return;
+  }
+
+  if (!editExpenseDateInput.value) {
+    alert('請選擇消費日期');
+    return;
+  }
+
+  if (!editExpenseTimeInput.value) {
+    alert('請選擇消費時間');
+    return;
+  }
+
+  const expenses = dashboardState.expenses.map((item) => item.id === editingExpenseId ? {
     ...item,
-    amount: Number(amount),
-    category,
-    paymentMethod,
-    expenseDate: `${expenseDate}T${expenseTime}:00`,
-    note,
+    amount,
+    category: editExpenseCategorySelect.value,
+    paymentMethod: editExpensePaymentMethodSelect.value,
+    expenseDate: `${editExpenseDateInput.value}T${editExpenseTimeInput.value}:00`,
+    note: editExpenseNoteInput.value.trim(),
     updatedAt: new Date().toISOString()
   } : item);
   await persistState({ expenses });
-};
+  closeEditExpenseModal();
+}
 
 function exportCsv() {
   const rows = [
@@ -272,6 +338,12 @@ changeAdminPasswordBtn.addEventListener('click', changeAdminPassword);
 addCategoryBtn.addEventListener('click', addCategory);
 addPaymentMethodBtn.addEventListener('click', addPaymentMethod);
 exportCsvBtn.addEventListener('click', exportCsv);
+closeEditExpenseModalBtn.addEventListener('click', closeEditExpenseModal);
+cancelEditExpenseBtn.addEventListener('click', closeEditExpenseModal);
+saveEditExpenseBtn.addEventListener('click', saveEditedExpense);
+editExpenseModal.addEventListener('click', (event) => {
+  if (event.target === editExpenseModal) closeEditExpenseModal();
+});
 
 try {
   setConnectionStatus('connecting', '連線中', '資料庫連線初始化中');

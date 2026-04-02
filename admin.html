@@ -127,6 +127,50 @@
           </div>
         </section>
       </main>
+
+      <div class="modal-backdrop hidden" id="editExpenseModal">
+        <div class="modal-card">
+          <div class="panel-title-row">
+            <div>
+              <p class="panel-kicker">編輯消費</p>
+              <h2>修改這筆紀錄</h2>
+            </div>
+            <button type="button" class="ghost-btn" id="closeEditExpenseModalBtn">關閉</button>
+          </div>
+
+          <div class="form-grid single-column mt-18">
+            <label>
+              <span>金額</span>
+              <input id="editExpenseAmountInput" type="number" min="0" step="0.01" placeholder="請輸入金額" />
+            </label>
+            <label>
+              <span>消費類別</span>
+              <select id="editExpenseCategorySelect"></select>
+            </label>
+            <label>
+              <span>付款方式</span>
+              <select id="editExpensePaymentMethodSelect"></select>
+            </label>
+            <label>
+              <span>消費日期</span>
+              <input id="editExpenseDateInput" type="date" />
+            </label>
+            <label>
+              <span>消費時間</span>
+              <input id="editExpenseTimeInput" type="time" />
+            </label>
+            <label>
+              <span>備註</span>
+              <input id="editExpenseNoteInput" type="text" placeholder="例如：咖啡、加油、超市" />
+            </label>
+          </div>
+
+          <div class="button-row-wrap mt-18">
+            <button type="button" class="ghost-btn" id="cancelEditExpenseBtn">取消</button>
+            <button type="button" class="primary-btn" id="saveEditExpenseBtn">儲存修改</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="admin.js"></script>
