@@ -207,6 +207,13 @@ h1, h2, h3, p { margin-top: 0; }
   color: #6e617f;
 }
 .amount-label span, label span { display: block; margin-bottom: 8px; font-weight: 700; }
+.field-hint {
+  display: block;
+  margin-top: 8px;
+  color: #8b7f9f;
+  font-size: 12px;
+  line-height: 1.5;
+}
 input, select {
   width: 100%;
   max-width: 100%;
@@ -318,6 +325,17 @@ input[type="time"] {
   border-radius: 16px;
 }
 .record-meta, .record-time { color: #7a6f8b; font-size: 14px; }
+.record-extra-link a,
+.receipt-link {
+  color: #8f4db4;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.record-extra-link a:hover,
+.receipt-link:hover {
+  text-decoration: underline;
+}
 .record-amount { font-size: 18px; font-weight: 800; color: #9b4b7f; }
 .tag { flex-wrap: wrap; justify-content: flex-start; }
 .tag-name { font-weight: 700; }

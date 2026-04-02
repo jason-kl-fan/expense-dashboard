@@ -8,11 +8,19 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
 import { firebaseConfig } from './firebase-config.js';
 import { DEFAULT_CATEGORIES, DEFAULT_PAYMENT_METHODS, normalizeSettings } from './shared.js';
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 const dashboardRef = doc(db, 'expenseDashboard', 'main');
 
 const defaultState = {
@@ -66,4 +74,29 @@ export async function saveDashboardState(partialState) {
     ...partialState,
     updatedAt: serverTimestamp()
   });
+}
+
+export async function uploadReceiptImage(expenseId, file) {
+  const extension = (file.name?.split('.').pop() || 'jpg').replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'jpg';
+  const safeType = file.type || 'image/jpeg';
+  const storagePath = `expense-receipts/${expenseId}-${Date.now()}.${extension}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, file, {
+    contentType: safeType,
+    cacheControl: 'public,max-age=31536000'
+  });
+
+  const downloadUrl = await getDownloadURL(storageRef);
+  return { storagePath, downloadUrl };
+}
+
+export async function deleteReceiptImage(storagePath) {
+  if (!storagePath) return;
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (error) {
+    if (error?.code === 'storage/object-not-found') return;
+    throw error;
+  }
 }

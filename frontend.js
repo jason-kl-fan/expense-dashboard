@@ -1,4 +1,4 @@
-import { ensureRemoteState, subscribeDashboard, saveDashboardState } from './firebase.js';
+import { ensureRemoteState, subscribeDashboard, saveDashboardState, uploadReceiptImage, deleteReceiptImage } from './firebase.js';
 import {
   uid,
   formatCurrency,
@@ -17,6 +17,8 @@ const backspaceBtn = document.getElementById('backspaceBtn');
 const clearBtn = document.getElementById('clearBtn');
 const categorySelect = document.getElementById('categorySelect');
 const paymentMethodSelect = document.getElementById('paymentMethodSelect');
+const cardLastFourInput = document.getElementById('cardLastFourInput');
+const cardLastFourHint = document.getElementById('cardLastFourHint');
 const expenseDateInput = document.getElementById('expenseDateInput');
 const expenseTimeInput = document.getElementById('expenseTimeInput');
 const noteInput = document.getElementById('noteInput');
@@ -251,7 +253,8 @@ function renderReceiptResult(data) {
     { label: '辨識金額', value: data.amount != null ? formatCurrency(data.amount) : '未辨識到' },
     { label: '辨識日期', value: data.dateLabel || '未辨識到' },
     { label: '辨識時間', value: data.timeLabel || '未辨識到' },
-    { label: '店家 / 備註', value: data.merchant || '未辨識到' }
+    { label: '店家 / 備註', value: data.merchant || '未辨識到' },
+    { label: '卡號末四碼', value: data.cardLastFour || '未辨識到' }
   ];
 
   receiptExtracted.innerHTML = items.map((item) => `
@@ -299,6 +302,46 @@ function normalizeMerchantText(value) {
     .replace(/[®©™]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeCardLastFour(value) {
+  return String(value || '').replace(/\D/g, '').slice(-4);
+}
+
+function supportsCardLastFour(paymentMethod) {
+  return /信用卡|金融卡|debit|credit|visa|master|amex|discover|apple\s*pay|google\s*pay|line\s*pay|paypal|card/i.test(String(paymentMethod || ''));
+}
+
+function updateCardLastFourHint() {
+  if (!cardLastFourHint) return;
+  if (supportsCardLastFour(paymentMethodSelect.value)) {
+    cardLastFourHint.textContent = '若有刷卡 / 綁卡付款，可填信用卡末四碼；系統也會嘗試從收據自動帶入。';
+  } else {
+    cardLastFourHint.textContent = '非卡類付款可留空，若填寫則只接受 4 位數字。';
+  }
+}
+
+function getValidatedCardLastFour({ value, paymentMethod, allowEmpty = true } = {}) {
+  const normalized = normalizeCardLastFour(value);
+
+  if (!normalized) {
+    if (allowEmpty) return '';
+    throw new Error('請輸入信用卡末四碼');
+  }
+
+  if (normalized.length !== 4) {
+    throw new Error('信用卡末四碼必須是 4 位數字');
+  }
+
+  if (/^(\d)\1{3}$/.test(normalized)) {
+    throw new Error('信用卡末四碼看起來不太合理，請再確認一次');
+  }
+
+  if (!supportsCardLastFour(paymentMethod)) {
+    throw new Error('目前付款方式看起來不是卡片或綁卡支付，若不是刷卡可留空');
+  }
+
+  return normalized;
 }
 
 function extractAmountsFromLine(line) {
@@ -388,6 +431,50 @@ function extractReceiptAmount(lines) {
   candidates.sort((a, b) => (b.score - a.score) || (a.index - b.index) || (b.value - a.value));
   const preferred = candidates.find((candidate) => candidate.score > 0);
   return preferred?.value ?? candidates[0].value;
+}
+
+function scoreCardLastFourLine(line, index) {
+  const normalized = normalizeNumericLikeText(line);
+  const lower = normalized.toLowerCase();
+  let score = 0;
+
+  if (/visa|master\s*card|mastercard|amex|american\s*express|discover|debit|credit|card|acct|account/i.test(lower)) score += 10;
+  if (/ending|last\s*4|xxxx|x{2,}|\*{2,}|#/.test(lower)) score += 7;
+  if (index <= 10) score += 2;
+
+  if (/approval|auth|reference|order|invoice|register|terminal|trace|sequence|trans|transaction|phone|tel|store\s*#|cashier|date|time/i.test(lower)) score -= 9;
+  if (/subtotal|tax|total|saving|discount|coupon|promo|reward|rebate|change|amount\s*due/i.test(lower)) score -= 10;
+  if (/\d{5,}/.test(normalized)) score -= 5;
+
+  return score;
+}
+
+function extractReceiptCardLastFour(lines) {
+  const candidates = [];
+
+  lines.slice(0, 28).forEach((line, index) => {
+    const normalized = normalizeNumericLikeText(line);
+    const score = scoreCardLastFourLine(normalized, index);
+    const matches = [
+      ...normalized.matchAll(/(?:visa|master\s*card|mastercard|amex|american\s*express|discover|debit|credit|card|acct|account|ending|last\s*4)[^\d]{0,16}(\d{4})\b/ig),
+      ...normalized.matchAll(/(?:\*{2,}|x{2,}|#)[^\d]{0,6}(\d{4})\b/ig)
+    ];
+
+    matches.forEach((match) => {
+      const value = normalizeCardLastFour(match[1]);
+      if (value.length === 4 && !/^(\d)\1{3}$/.test(value)) {
+        candidates.push({ value, score, index });
+      }
+    });
+  });
+
+  if (!candidates.length) return '';
+
+  candidates.sort((a, b) => (b.score - a.score) || (a.index - b.index));
+  const best = candidates[0];
+  const competing = candidates.find((candidate) => candidate !== best && candidate.value !== best.value && candidate.score >= best.score - 1);
+  if (!best || best.score < 6 || competing) return '';
+  return best.value;
 }
 
 const MONTH_NAME_MAP = {
@@ -642,6 +729,7 @@ function parseReceiptText(text, options = {}) {
   const timeInfo = extractReceiptTime(lines, normalizedText);
   const amount = extractReceiptAmount(lines);
   const merchant = extractReceiptMerchant(lines, topLines);
+  const cardLastFour = extractReceiptCardLastFour(lines);
 
   return {
     amount,
@@ -650,12 +738,13 @@ function parseReceiptText(text, options = {}) {
     timeInput: timeInfo.input,
     timeLabel: timeInfo.label,
     merchant,
+    cardLastFour,
     rawText: normalizedText
   };
 }
 
 function getReceiptResultScore(result) {
-  return [result.amount != null, Boolean(result.dateInput), Boolean(result.timeInput), Boolean(result.merchant)].filter(Boolean).length;
+  return [result.amount != null, Boolean(result.dateInput), Boolean(result.timeInput), Boolean(result.merchant), Boolean(result.cardLastFour)].filter(Boolean).length;
 }
 
 function applyReceiptToForm(result) {
@@ -667,6 +756,7 @@ function applyReceiptToForm(result) {
   if (result.dateInput) expenseDateInput.value = result.dateInput;
   if (result.timeInput) expenseTimeInput.value = result.timeInput;
   if (result.merchant && !noteInput.value.trim()) noteInput.value = result.merchant;
+  if (result.cardLastFour && !cardLastFourInput.value.trim()) cardLastFourInput.value = result.cardLastFour;
 }
 
 function clearReceiptSelection() {
@@ -734,7 +824,7 @@ async function scanReceipt() {
     applyReceiptToForm(result);
     renderReceiptResult(result);
 
-    const filledFields = [result.amount != null ? '金額' : '', result.dateInput ? '日期' : '', result.timeInput ? '時間' : '', result.merchant ? '店家' : ''].filter(Boolean);
+    const filledFields = [result.amount != null ? '金額' : '', result.dateInput ? '日期' : '', result.timeInput ? '時間' : '', result.merchant ? '店家' : '', result.cardLastFour ? '卡號末四碼' : ''].filter(Boolean);
     if (filledFields.length) {
       setReceiptStatus('success', `辨識完成，已自動帶入：${filledFields.join('、')}（已優先套用美國格式）`);
     } else {
@@ -774,7 +864,9 @@ function renderSelectors() {
   } else {
     paymentMethodSelect.value = getPreferredPaymentMethod();
   }
-}
++
++  updateCardLastFourHint();
++}
 
 function updateAmountDisplay() {
   amountDisplay.value = amountValue;
@@ -989,8 +1081,9 @@ function renderExpenseList(expenses) {
     <div class="record-item">
       <div>
         <strong>${item.category}</strong>
-        <div class="record-meta">${item.paymentMethod} ・ ${formatDateTime(item.expenseDate)}</div>
+        <div class="record-meta">${item.paymentMethod}${item.cardLastFour ? ` ・ 末四碼 ${item.cardLastFour}` : ''} ・ ${formatDateTime(item.expenseDate)}</div>
         <div class="record-time">${item.note || '無備註'}</div>
+        ${item.receiptImageUrl ? `<div class="record-extra-link"><a href="${item.receiptImageUrl}" target="_blank" rel="noopener noreferrer">查看收據圖片</a></div>` : ''}
       </div>
       <div class="record-amount">${formatCurrency(item.amount)}</div>
     </div>
@@ -1024,22 +1117,75 @@ async function addExpense() {
     return;
   }
 
-  const nextExpenses = [...dashboardState.expenses, {
-    id: uid(),
-    amount,
-    category: categorySelect.value,
-    paymentMethod: paymentMethodSelect.value,
-    expenseDate: combineExpenseDateTime(expenseDateInput.value, expenseTimeInput.value),
-    note: noteInput.value.trim(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }];
+  let cardLastFour = '';
+  try {
+    cardLastFour = getValidatedCardLastFour({
+      value: cardLastFourInput.value,
+      paymentMethod: paymentMethodSelect.value,
+      allowEmpty: true
+    });
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
 
-  await persistState({ expenses: nextExpenses });
-  clearAmount();
-  setCurrentTimeDefault();
-  noteInput.value = '';
-  paymentMethodSelect.value = getPreferredPaymentMethod();
+  const expenseId = uid();
+  const receiptFile = receiptImageInput.files?.[0];
+  let receiptImageUrl = '';
+  let receiptImagePath = '';
+
+  try {
+    if (receiptFile) {
+      scanReceiptBtn.disabled = true;
+      clearReceiptBtn.disabled = true;
+      setReceiptStatus('working', '正在上傳收據圖片並綁定到這筆消費…');
+      const uploadResult = await uploadReceiptImage(expenseId, receiptFile);
+      receiptImageUrl = uploadResult.downloadUrl;
+      receiptImagePath = uploadResult.storagePath;
+      setReceiptStatus('success', '收據圖片已上傳，正在儲存這筆消費紀錄…');
+    }
+
+    const nextExpenses = [...dashboardState.expenses, {
+      id: expenseId,
+      amount,
+      category: categorySelect.value,
+      paymentMethod: paymentMethodSelect.value,
+      cardLastFour,
+      expenseDate: combineExpenseDateTime(expenseDateInput.value, expenseTimeInput.value),
+      note: noteInput.value.trim(),
+      receiptImageUrl,
+      receiptImagePath,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }];
+
+    await persistState({ expenses: nextExpenses });
+    clearAmount();
+    setCurrentTimeDefault();
+    noteInput.value = '';
+    cardLastFourInput.value = '';
+    paymentMethodSelect.value = getPreferredPaymentMethod();
+    updateCardLastFourHint();
+    clearReceiptSelection();
+  } catch (error) {
+    console.error(error);
+    if (receiptImagePath) {
+      try {
+        await deleteReceiptImage(receiptImagePath);
+      } catch (cleanupError) {
+        console.error(cleanupError);
+      }
+    }
+    if (receiptFile && /storage\//i.test(error?.code || '')) {
+      setReceiptStatus('error', `收據圖片上傳失敗：${error.message}`);
+      alert(`收據圖片上傳失敗：${error.message}`);
+      return;
+    }
+    throw error;
+  } finally {
+    scanReceiptBtn.disabled = false;
+    clearReceiptBtn.disabled = false;
+  }
 }
 
 keypad.addEventListener('click', (event) => {
@@ -1052,6 +1198,10 @@ receiptImageInput.addEventListener('change', () => {
   previewReceiptFile(file);
   clearReceiptResult();
   setReceiptStatus(file ? 'idle' : 'idle', file ? '已選擇收據照片，按「開始辨識收據」即可自動帶入表單' : '尚未選擇收據照片');
+});
+paymentMethodSelect.addEventListener('change', updateCardLastFourHint);
+cardLastFourInput.addEventListener('input', () => {
+  cardLastFourInput.value = normalizeCardLastFour(cardLastFourInput.value);
 });
 scanReceiptBtn.addEventListener('click', scanReceipt);
 clearReceiptBtn.addEventListener('click', clearReceiptSelection);
@@ -1070,6 +1220,7 @@ customEndDateInput.addEventListener('change', refreshUI);
 setTodayDefault();
 setCurrentTimeDefault();
 updateAmountDisplay();
+updateCardLastFourHint();
 tickClock();
 setInterval(tickClock, 1000);
 

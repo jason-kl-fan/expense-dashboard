@@ -1,4 +1,4 @@
-import { ensureRemoteState, subscribeDashboard, saveDashboardState } from './firebase.js';
+import { ensureRemoteState, subscribeDashboard, saveDashboardState, deleteReceiptImage } from './firebase.js';
 import {
   normalizeSettings,
   verifyAdminPassword,
@@ -41,12 +41,31 @@ const saveEditExpenseBtn = document.getElementById('saveEditExpenseBtn');
 const editExpenseAmountInput = document.getElementById('editExpenseAmountInput');
 const editExpenseCategorySelect = document.getElementById('editExpenseCategorySelect');
 const editExpensePaymentMethodSelect = document.getElementById('editExpensePaymentMethodSelect');
+const editExpenseCardLastFourInput = document.getElementById('editExpenseCardLastFourInput');
 const editExpenseDateInput = document.getElementById('editExpenseDateInput');
 const editExpenseTimeInput = document.getElementById('editExpenseTimeInput');
 const editExpenseNoteInput = document.getElementById('editExpenseNoteInput');
+const editExpenseReceiptLink = document.getElementById('editExpenseReceiptLink');
 
 let dashboardState = { categories: [], paymentMethods: [], expenses: [], settings: {} };
 let editingExpenseId = null;
+
+function normalizeCardLastFour(value) {
+  return String(value || '').replace(/\D/g, '').slice(-4);
+}
+
+function supportsCardLastFour(paymentMethod) {
+  return /信用卡|金融卡|debit|credit|visa|master|amex|discover|apple\s*pay|google\s*pay|line\s*pay|paypal|card/i.test(String(paymentMethod || ''));
+}
+
+function getValidatedCardLastFour(value, paymentMethod) {
+  const normalized = normalizeCardLastFour(value);
+  if (!normalized) return '';
+  if (normalized.length !== 4) throw new Error('信用卡末四碼必須是 4 位數字');
+  if (/^(\d)\1{3}$/.test(normalized)) throw new Error('信用卡末四碼看起來不太合理，請再確認一次');
+  if (!supportsCardLastFour(paymentMethod)) throw new Error('目前付款方式看起來不是卡片或綁卡支付，若不是刷卡可留空');
+  return normalized;
+}
 
 function setConnectionStatus(status, text, title = text) {
   connectionIndicator.classList.remove('connection-indicator--connected', 'connection-indicator--error', 'connection-indicator--connecting');
@@ -102,8 +121,9 @@ function renderExpenseList() {
     <div class="record-item">
       <div>
         <strong>${item.category}</strong>
-        <div class="record-meta">${item.paymentMethod} ・ ${formatDateTime(item.expenseDate)}</div>
+        <div class="record-meta">${item.paymentMethod}${item.cardLastFour ? ` ・ 末四碼 ${item.cardLastFour}` : ''} ・ ${formatDateTime(item.expenseDate)}</div>
         <div class="record-time">${item.note || '無備註'}</div>
+        ${item.receiptImageUrl ? `<div class="record-extra-link"><a href="${item.receiptImageUrl}" target="_blank" rel="noopener noreferrer">查看收據圖片</a></div>` : ''}
       </div>
       <div>
         <div class="record-amount">${formatCurrency(item.amount)}</div>
@@ -141,9 +161,17 @@ function openEditExpenseModal(expense) {
   editingExpenseId = expense.id;
   renderEditExpenseSelectors(expense.category, expense.paymentMethod);
   editExpenseAmountInput.value = expense.amount;
+  editExpenseCardLastFourInput.value = expense.cardLastFour || '';
   editExpenseDateInput.value = dateDefault;
   editExpenseTimeInput.value = timeDefault;
   editExpenseNoteInput.value = expense.note || '';
+  if (expense.receiptImageUrl) {
+    editExpenseReceiptLink.href = expense.receiptImageUrl;
+    editExpenseReceiptLink.classList.remove('hidden');
+  } else {
+    editExpenseReceiptLink.removeAttribute('href');
+    editExpenseReceiptLink.classList.add('hidden');
+  }
   editExpenseModal.classList.remove('hidden');
 }
 
@@ -261,7 +289,16 @@ window.editPaymentMethod = async (name) => {
 
 window.deleteExpense = async (id) => {
   if (!confirm('確定刪除這筆消費紀錄？')) return;
+  const target = dashboardState.expenses.find((item) => item.id === id);
   await persistState({ expenses: dashboardState.expenses.filter((item) => item.id !== id) });
+  if (target?.receiptImagePath) {
+    try {
+      await deleteReceiptImage(target.receiptImagePath);
+    } catch (error) {
+      console.error(error);
+      alert(`紀錄已刪除，但收據圖片刪除失敗：${error.message}`);
+    }
+  }
 };
 
 window.editExpense = async (id) => {
@@ -299,11 +336,20 @@ async function saveEditedExpense() {
     return;
   }
 
+  let cardLastFour = '';
+  try {
+    cardLastFour = getValidatedCardLastFour(editExpenseCardLastFourInput.value, editExpensePaymentMethodSelect.value);
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
+
   const expenses = dashboardState.expenses.map((item) => item.id === editingExpenseId ? {
     ...item,
     amount,
     category: editExpenseCategorySelect.value,
     paymentMethod: editExpensePaymentMethodSelect.value,
+    cardLastFour,
     expenseDate: `${editExpenseDateInput.value}T${editExpenseTimeInput.value}:00`,
     note: editExpenseNoteInput.value.trim(),
     updatedAt: new Date().toISOString()
@@ -314,14 +360,16 @@ async function saveEditedExpense() {
 
 function exportCsv() {
   const rows = [
-    ['日期', '時間', '類別', '付款方式', '金額', '備註'],
+    ['日期', '時間', '類別', '付款方式', '信用卡末四碼', '金額', '備註', '收據圖片'],
     ...dashboardState.expenses.map((item) => [
       formatDateOnly(item.expenseDate),
       formatTimeOnly(item.expenseDate),
       item.category,
       item.paymentMethod,
+      item.cardLastFour || '',
       item.amount,
-      item.note || ''
+      item.note || '',
+      item.receiptImageUrl || ''
     ])
   ];
   const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -341,6 +389,9 @@ exportCsvBtn.addEventListener('click', exportCsv);
 closeEditExpenseModalBtn.addEventListener('click', closeEditExpenseModal);
 cancelEditExpenseBtn.addEventListener('click', closeEditExpenseModal);
 saveEditExpenseBtn.addEventListener('click', saveEditedExpense);
+editExpenseCardLastFourInput.addEventListener('input', () => {
+  editExpenseCardLastFourInput.value = normalizeCardLastFour(editExpenseCardLastFourInput.value);
+});
 editExpenseModal.addEventListener('click', (event) => {
   if (event.target === editExpenseModal) closeEditExpenseModal();
 });
