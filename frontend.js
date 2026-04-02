@@ -193,6 +193,9 @@ function renderChart(expenses) {
         legend: {
           position: 'bottom'
         }
+      },
+      layout: {
+        padding: 8
       }
     }
   });

@@ -122,6 +122,10 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .panel-kicker, .table-tip { color: #8b7f9f; font-size: 14px; }
 .live-clock { color: #8b7f9f; font-weight: 700; }
+.amount-label {
+  display: block;
+  margin-bottom: 16px;
+}
 .status-card {
   background: #f8eff7;
   border-radius: 16px;
@@ -156,6 +160,7 @@ input[type="time"] {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
+  margin-top: 6px;
 }
 .keypad button {
   padding: 18px 0;
@@ -196,7 +201,20 @@ input[type="time"] {
   display: block;
   width: 100% !important;
   max-width: 100%;
+}
+#categoryChart {
   height: 280px !important;
+}
+.pie-chart-wrap {
+  position: relative;
+  width: min(100%, 320px);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto 12px;
+}
+.pie-chart-wrap canvas,
+#categoryPieChart {
+  width: 100% !important;
+  height: 100% !important;
 }
 .chart-stats-list, .record-list, .tag-list {
   display: flex;
@@ -282,7 +300,11 @@ input[type="time"] {
     height: 10px;
   }
 
-  .chart-card canvas {
+  #categoryChart {
     height: 220px !important;
+  }
+
+  .pie-chart-wrap {
+    width: min(100%, 260px);
   }
 }
