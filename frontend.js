@@ -141,6 +141,7 @@ function renderChart(expenses) {
   const totals = aggregateByCategory(expenses, categories);
   const ctx = document.getElementById('categoryChart');
   const pieCtx = document.getElementById('categoryPieChart');
+  const isMobile = window.innerWidth <= 640;
   const activeEntries = categories
     .map((category, index) => ({
       category,
@@ -168,10 +169,60 @@ function renderChart(expenses) {
       }]
     },
     options: {
+      indexAxis: isMobile ? 'y' : 'x',
       responsive: true,
       maintainAspectRatio: false,
+      alignToPixels: true,
       plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
+      layout: {
+        padding: {
+          top: 8,
+          right: 10,
+          bottom: 4,
+          left: 4
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: {
+            color: '#7a6f8b',
+            font: {
+              size: isMobile ? 11 : 12,
+              weight: '600'
+            },
+            maxRotation: 0,
+            minRotation: 0
+          },
+          grid: {
+            color: 'rgba(224, 208, 231, 0.5)'
+          },
+          border: {
+            display: false
+          }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            color: '#5f5374',
+            font: {
+              size: isMobile ? 13 : 12,
+              weight: '700'
+            },
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: false,
+            padding: 6
+          },
+          grid: {
+            display: !isMobile,
+            color: 'rgba(224, 208, 231, 0.35)'
+          },
+          border: {
+            display: false
+          }
+        }
+      }
     }
   });
 
