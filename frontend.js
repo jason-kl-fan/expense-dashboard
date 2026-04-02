@@ -169,6 +169,7 @@ function renderChart(expenses) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true } }
     }
@@ -187,6 +188,7 @@ function renderChart(expenses) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: {
           position: 'bottom'
