@@ -1,9 +1,9 @@
 export const firebaseConfig = {
-  apiKey: "AIzaSyDgbgEvJ7r6P9dRo715MBi24t_QWSZosyY",
-  authDomain: "study-time-dashboard.firebaseapp.com",
-  projectId: "study-time-dashboard",
-  storageBucket: "study-time-dashboard.firebasestorage.app",
-  messagingSenderId: "254474802163",
-  appId: "1:254474802163:web:2e65917dc1eb1833feb886",
-  measurementId: "G-T3W63CCWGC"
+  apiKey: "AIzaSyDCC-y-uAYehrjYAMGQHhZ2rj7A_u1Fo8I",
+  authDomain: "husky-finance-assistant.firebaseapp.com",
+  projectId: "husky-finance-assistant",
+  storageBucket: "husky-finance-assistant.firebasestorage.app",
+  messagingSenderId: "377047078989",
+  appId: "1:377047078989:web:f21705694f4155985b6404",
+  measurementId: "G-YBL3VQ97CP"
 };

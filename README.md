@@ -11,8 +11,9 @@
 - 日 / 週 / 月 / 年 / 自訂區間統計
 - 類別累積與明細編輯
 
-## Firebase 文件位置
-- `expenseDashboard/main`
+## Firebase 專案
+- projectId: `husky-finance-assistant`
+- 文件位置: `expenseDashboard/main`
 
 ## 注意
 這是快速展示版本，後台密碼採簡化做法，資料寫在 Firestore。
