@@ -308,19 +308,47 @@ function extractAmountsFromLine(line) {
     .filter((value) => Number.isFinite(value) && value > 0 && value < 100000);
 }
 
+function isHardRejectedAmountLine(normalized) {
+  return /you\s*saved|member\s*savings?|instant\s*savings?|store\s*savings?|discount|coupon|promo|promotion|cash\s*back|cashback|reward|rebate|off\b|save\s*\$?/i.test(normalized)
+    || /-\s*\$?\s*\d+(?:[.,]\d{2})?/.test(normalized)
+    || /\(\s*\$?\s*\d+(?:[.,]\d{2})?\s*\)/.test(normalized);
+}
+
+function isPrimaryTotalLine(normalized) {
+  return /grand\s*total|amount\s*due|balance\s*due|total\s*due|amount\s*tendered/.test(normalized)
+    || (/\btotal\b/.test(normalized) && !/subtotal|total\s*savings?|estimated\s*total/.test(normalized));
+}
+
+function getAmountContextBonus(lines, index) {
+  const current = normalizeNumericLikeText(lines[index] || '').toLowerCase();
+  const previous = normalizeNumericLikeText(lines[index - 1] || '').toLowerCase();
+  const next = normalizeNumericLikeText(lines[index + 1] || '').toLowerCase();
+  let bonus = 0;
+
+  if (isPrimaryTotalLine(current)) bonus += 12;
+  if (isPrimaryTotalLine(previous)) bonus += 9;
+  if (isPrimaryTotalLine(next)) bonus += 4;
+  if (/subtotal|tax|tip/.test(previous)) bonus += 3;
+  if (/subtotal|tax|tip/.test(current)) bonus -= 10;
+  if (/change|cash|discount|saving|coupon|promo|reward|rebate/.test(previous)) bonus -= 4;
+
+  return bonus;
+}
+
 function scoreAmountLine(line) {
   const normalized = normalizeNumericLikeText(line).toLowerCase();
   let score = 0;
-  if (/grand\s*total/.test(normalized)) score += 18;
-  if (/amount\s*due|balance\s*due|total\s*due/.test(normalized)) score += 16;
-  if (/\btotal\b/.test(normalized)) score += 10;
+  if (/grand\s*total/.test(normalized)) score += 24;
+  if (/amount\s*due|balance\s*due|total\s*due/.test(normalized)) score += 21;
+  if (/\btotal\b/.test(normalized) && !/subtotal|total\s*savings?|estimated\s*total/.test(normalized)) score += 13;
   if (/\$/.test(normalized)) score += 2;
   if (/auth|approval|reference|invoice\s*#|order\s*#/.test(normalized)) score -= 3;
-  if (/subtotal/.test(normalized)) score -= 9;
-  if (/tax/.test(normalized)) score -= 8;
+  if (/subtotal/.test(normalized)) score -= 14;
+  if (/tax/.test(normalized)) score -= 10;
   if (/tip/.test(normalized)) score -= 4;
-  if (/discount|saving|coupon/.test(normalized)) score -= 5;
+  if (/discount|saving|coupon|promo|promotion|cashback|reward|rebate/.test(normalized)) score -= 20;
   if (/cash|change|visa|mastercard|debit|credit|card/.test(normalized)) score -= 4;
+  if (isHardRejectedAmountLine(normalized)) score -= 30;
   return score;
 }
 
@@ -328,23 +356,36 @@ function extractReceiptAmount(lines) {
   const candidates = [];
 
   lines.forEach((line, index) => {
+    const normalized = normalizeNumericLikeText(line).toLowerCase();
     const amounts = extractAmountsFromLine(line);
-    const score = scoreAmountLine(line);
+    const score = scoreAmountLine(line) + getAmountContextBonus(lines, index);
+    const hardRejected = isHardRejectedAmountLine(normalized);
+
     amounts.forEach((value) => {
-      candidates.push({ value, score, index });
+      if (hardRejected) return;
+      candidates.push({ value, score, index, source: 'line' });
     });
 
     const nextLine = lines[index + 1];
-    if (nextLine && /grand\s*total|amount\s*due|balance\s*due|\btotal\b/i.test(line) && !amounts.length) {
+    const nextLineNormalized = normalizeNumericLikeText(nextLine || '').toLowerCase();
+    if (nextLine && isPrimaryTotalLine(normalized) && !amounts.length && !isHardRejectedAmountLine(nextLineNormalized)) {
       extractAmountsFromLine(nextLine).forEach((value) => {
-        candidates.push({ value, score: score + 5, index: index + 0.25 });
+        candidates.push({ value, score: score + 8 + getAmountContextBonus(lines, index + 1), index: index + 0.25, source: 'next-line' });
+      });
+    }
+
+    const previousLine = lines[index - 1];
+    const previousLineNormalized = normalizeNumericLikeText(previousLine || '').toLowerCase();
+    if (previousLine && amounts.length && isPrimaryTotalLine(previousLineNormalized) && !hardRejected) {
+      amounts.forEach((value) => {
+        candidates.push({ value, score: score + 10, index: index - 0.25, source: 'after-total-label' });
       });
     }
   });
 
   if (!candidates.length) return null;
 
-  candidates.sort((a, b) => (b.score - a.score) || (b.value - a.value) || (a.index - b.index));
+  candidates.sort((a, b) => (b.score - a.score) || (a.index - b.index) || (b.value - a.value));
   const preferred = candidates.find((candidate) => candidate.score > 0);
   return preferred?.value ?? candidates[0].value;
 }
