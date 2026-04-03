@@ -864,9 +864,9 @@ function renderSelectors() {
   } else {
     paymentMethodSelect.value = getPreferredPaymentMethod();
   }
-+
-+  updateCardLastFourHint();
-+}
+
+  updateCardLastFourHint();
+}
 
 function updateAmountDisplay() {
   amountDisplay.value = amountValue;
